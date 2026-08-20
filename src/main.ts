@@ -347,7 +347,7 @@ function renderComesadeLegacyReference(): void {
     "    <aside class='sidebar' aria-label='Navegación principal'><div class='sidebar-identity'><span class='sidebar-kicker'>LOCAL DESKTOP</span><span class='product-badge'>ADE / ASA</span></div><div class='sidebar-section-label'>Producto</div><nav class='sidebar-nav' aria-label='Producto'><button class='sidebar-nav-item is-active' data-view='overview' type='button'><span class='nav-glyph'>▦</span><span><strong>ADE</strong><small>Workspace</small></span></button><button class='sidebar-nav-item' data-view='asa' type='button'><span class='nav-glyph'>✦</span><span><strong>ASA</strong><small>Agentes y sesiones</small></span></button><button class='sidebar-nav-item' data-view='terminals' type='button'><span class='nav-glyph'>›_</span><span><strong>Terminal</strong><small>Shells locales</small></span></button><button class='sidebar-nav-item' data-view='tools' type='button'><span class='nav-glyph'>◎</span><span><strong>Tools</strong><small>Browser y preview</small></span></button></nav>",
     "      <div class='sidebar-section-title'><span>Workspaces</span><button class='icon-button' id='sidebar-open-workspaces' type='button' title='Abrir workspace'>+</button></div><button class='active-workspace-card' id='active-workspace-card' type='button'><span class='workspace-card-icon'>□</span><span class='workspace-card-copy'><strong id='active-workspace-name'>Sin workspace</strong><small id='active-workspace-path'>Crea o abre una carpeta</small></span><span class='workspace-card-chevron'>›</span></button><div class='sidebar-project-empty' id='sidebar-project-empty' hidden><span>□</span><strong>Sin workspace</strong><small>Abre una carpeta local para empezar.</small></div>",
     "      <div class='sidebar-workspace-heading'><span id='sidebar-project-label'>Workspace</span><button class='icon-button' id='sidebar-filter-btn' type='button' title='Filtros: todas las sesiones'>≡</button></div><div class='session-list' id='session-list'></div><div class='sidebar-session-actions'><input class='sidebar-search-input' id='sidebar-search-input' type='search' placeholder='Filtrar sesiones' aria-label='Filtrar sesiones' /><button class='secondary-button sidebar-new-session' id='sidebar-new-session' type='button'>+<span>Nueva sesión</span></button></div>",
-    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.15</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
+    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.17</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
     "    </aside>",
     "    <main class='workspace-main view-overview'><header class='workspace-header'><div class='workspace-header-copy'><span class='eyebrow'>ADE / LOCAL WORKSPACE</span><h1 id='workspace-heading'>Sin workspace seleccionado</h1><p id='workspace-header-path'>Crea o abre un workspace para comenzar.</p></div><div class='workspace-header-actions'><button class='header-button' id='open-workspace-menu' type='button'>Workspace</button><button class='header-button' id='open-browser-menu' type='button'>Browser</button><button class='header-button header-button-primary' id='header-new-session' type='button'>+<span>Nueva sesión</span></button></div></header>",
     "      <div class='workspace-views-stack' id='workspace-views-stack'>",
@@ -467,7 +467,7 @@ function renderComesadeSurface(): void {
               <button class="icon-button" id="sidebar-stats" type="button" title="Estadísticas">▥</button>
               <button class="icon-button" id="sidebar-settings" type="button" title="Configuración">⚙</button>
             </div>
-            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.15</span></div>
+            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.17</span></div>
           </div>
           <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
         </aside>
@@ -776,6 +776,14 @@ const inspectorSessionsList = document.querySelector<HTMLElement>('#inspector-se
 const fileTree = document.querySelector<HTMLDivElement>('#file-tree')!;
 const fileTreePath = document.querySelector<HTMLElement>('#file-tree-path')!;
 const filesRefresh = document.querySelector<HTMLButtonElement>('#files-refresh')!;
+const filesBack = document.createElement('button');
+filesBack.id = 'files-back';
+filesBack.className = 'icon-button files-back-button';
+filesBack.type = 'button';
+filesBack.title = 'Volver a la carpeta padre';
+filesBack.setAttribute('aria-label', 'Volver a la carpeta padre');
+filesBack.innerHTML = icons.chevronLeft;
+document.querySelector<HTMLElement>('#inspector-view-sort')?.before(filesBack);
 const inspectorSearchInput = document.querySelector<HTMLInputElement>('#inspector-search-input')!;
 const filesNewFile = document.createElement('button');
 filesNewFile.id = 'files-new-file';
@@ -2580,12 +2588,14 @@ function setInspectorTab(tab: string): void {
 async function refreshFileTree(relative = fileTreeRelativePath): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) {
+    filesBack.disabled = true;
     fileTree.innerHTML = '<div class="dock-empty">Abre un workspace para ver sus archivos.</div>';
     return;
   }
   const normalizedRelative = normalizedRelativePath(relative);
   fileTreeRelativePath = normalizedRelative;
-  fileTreePath.textContent = normalizedRelative || 'WORKSPACE';
+  filesBack.disabled = !normalizedRelative;
+  fileTreePath.textContent = normalizedRelative || compactPathLabel(workspace.path);
   const root = activeProjectRoot() ?? workspace.path;
   try {
     const entries = await invoke<FsEntry[]>('list', { root, relative: normalizedRelative || null });
@@ -2602,7 +2612,7 @@ async function refreshFileTree(relative = fileTreeRelativePath): Promise<void> {
     fileTree.innerHTML = visibleEntries.length ? visibleEntries.map((entry) => {
       const icon = entry.kind === 'directory' ? icons.folder : icons.note;
       const action = entry.kind === 'directory' ? 'data-file-dir' : 'data-file-path';
-      return '<button class="file-tree-item file-tree-item-' + entry.kind + '" ' + action + '="' + escapeHtml(entry.path) + '" type="button">' + icon + '<span>' + escapeHtml(entry.name) + '</span></button>';
+      return '<button class="file-tree-item file-tree-item-' + entry.kind + '" ' + action + '="' + escapeHtml(entry.path) + '" title="' + escapeHtml(entry.name) + '" type="button">' + icon + '<span>' + escapeHtml(entry.name) + '</span></button>';
     }).join('') : '<div class="dock-empty">Carpeta vacia.</div>';
     if (normalizedRelative) {
       const up = document.createElement('button');
@@ -4692,8 +4702,7 @@ async function openSearchModal(): Promise<void> {
     showToast('Abre un workspace real antes de buscar.', true);
     return;
   }
-  modalRoot.innerHTML = '<div class="modal-backdrop" id="search-backdrop"><section class="modal-panel search-modal"><div class="modal-heading"><div><span class="eyebrow">PROJECT / SEARCH</span><h2>Search files</h2></div><button class="modal-close" id="search-close" type="button">' + icons.close + '</button></div><p class="modal-copy">Busca en los archivos reales del workspace. Se excluyen .git, node_modules, target y dist.</p><form id="search-form"><input class="field-input" id="search-query" placeholder="texto a buscar" autocomplete="off" required/><button class="primary-button" type="submit">' + icons.search + '<span>Search</span></button></form><div class="search-results" id="search-results"><div class="dock-empty">Escribe una consulta.</div></div></section></div>';
-  document.querySelector<HTMLFormElement>('#search-form')!.insertAdjacentHTML('afterbegin', '<div class="search-options"><label><input id="search-regex" type="checkbox"/><span>Regex</span></label><label><input id="search-case" type="checkbox"/><span>Case sensitive</span></label><label><input id="search-whole" type="checkbox"/><span>Whole word</span></label><label class="search-filter"><span>Files</span><input id="search-file-filter" placeholder="*.ts, *.tsx"/></label></div>');
+  modalRoot.innerHTML = '<div class="modal-backdrop" id="search-backdrop"><section class="modal-panel search-modal" role="dialog" aria-modal="true" aria-labelledby="search-title" aria-describedby="search-description"><div class="modal-heading"><div><span class="eyebrow">PROJECT / SEARCH</span><h2 id="search-title">Search files</h2></div><button class="modal-close" id="search-close" type="button" aria-label="Close search" title="Close search">' + icons.close + '</button></div><p class="modal-copy" id="search-description">Busca en los archivos reales del workspace. Se excluyen .git, node_modules, target y dist.</p><form id="search-form"><div class="search-options" aria-label="Search options"><label><input id="search-regex" type="checkbox"/><span>Regex</span></label><label><input id="search-case" type="checkbox"/><span>Case sensitive</span></label><label><input id="search-whole" type="checkbox"/><span>Whole word</span></label><label class="search-filter"><span>Files</span><input id="search-file-filter" placeholder="*.ts, *.tsx" aria-label="File filter"/></label></div><div class="search-query"><label class="search-query-label" for="search-query"><span>Search content</span><kbd>Enter</kbd></label><input class="field-input" id="search-query" placeholder="texto a buscar" autocomplete="off" aria-describedby="search-description" required/></div><button class="primary-button" type="submit">' + icons.search + '<span>Search</span><kbd>Enter</kbd></button></form><div class="search-results" id="search-results" aria-live="polite"><div class="dock-empty">Escribe una consulta.</div></div></section></div>';
   const close = (): void => { modalRoot.innerHTML = ''; };
   document.querySelector<HTMLButtonElement>('#search-close')!.addEventListener('click', close);
   document.querySelector<HTMLFormElement>('#search-form')!.addEventListener('submit', async (event) => {
@@ -4991,6 +5000,12 @@ function bindInteractions(): void {
     if (sessionId) activateSession(sessionId);
   });
   inspectorGitRefresh.addEventListener('click', () => { void refreshGitPanel(); });
+  filesBack.addEventListener('click', () => {
+    const parts = fileTreeRelativePath.split(/[\\/]/).filter(Boolean);
+    if (!parts.length) return;
+    parts.pop();
+    void refreshFileTree(parts.join('/'));
+  });
   filesRefresh.addEventListener('click', () => { fileTreeRelativePath = ''; void refreshFileTree(); });
   filesNewFile.addEventListener('click', () => { void createWorkspaceEntry('file'); });
   filesNewFolder.addEventListener('click', () => { void createWorkspaceEntry('directory'); });
