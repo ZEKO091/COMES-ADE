@@ -1,6 +1,6 @@
 [package]
 name = "comesade"
-version = "0.1.1"
+version = "0.1.2"
 description = "ComesADE - sesiones y terminales nativas para vibe coding"
 authors = ["ComesADE"]
 edition = "2021"
@@ -14,7 +14,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 portable-pty = "0.8"
 rfd = { version = "0.16", default-features = false }
 notify = "6.1"

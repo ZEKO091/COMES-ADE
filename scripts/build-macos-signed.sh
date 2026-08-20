@@ -33,7 +33,7 @@ if [[ -n "${TAURI_TARGET:-}" ]]; then
   target_args+=(--target "$TAURI_TARGET")
 fi
 
-npm run tauri build -- --bundles dmg "${target_args[@]}"
+npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles dmg "${target_args[@]}"
 
 shopt -s nullglob
 dmgs=(src-tauri/target/*/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/dmg/*.dmg)

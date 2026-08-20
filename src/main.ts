@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
+import { relaunch } from '@tauri-apps/plugin-process';
+import { check } from '@tauri-apps/plugin-updater';
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview, Webview } from '@tauri-apps/api/webview';
@@ -43,6 +45,7 @@ type AgentDefinition = { id: string; name: string; executable: string; path: str
 type CustomAgentDefinition = { id: string; name: string; executable: string; args: string[]; environment: Record<string, string> };
 type ShellDefinition = { id: string; name: string; executable: string; path: string | null; installed: boolean; isDefault?: boolean };
 type RuntimePlatform = { os: string; defaultShell: string; defaultShellName: string };
+type AppUpdate = NonNullable<Awaited<ReturnType<typeof check>>>;
 type FsEntry = { name: string; path: string; kind: 'file' | 'directory'; size: number; modifiedAt: number | null };
 type SearchMatch = { path: string; line: number; text: string };
 type GitStatusEntry = { path: string; indexStatus: string; worktreeStatus: string; kind: string };
@@ -116,6 +119,7 @@ const icons = {
   panelRight: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M15 5v14"/></svg>',
   external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4L4 9M4 5v4h4M4 13a8 8 0 0 0 14.6 4L20 15m0 4v-4h-4"/></svg>',
+  download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg>',
   settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   help: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
@@ -365,7 +369,7 @@ function renderComesadeSurface(): void {
       <header class="titlebar">
         <div class="titlebar-left">
           <div class="titlebar-window-slot titlebar-window-slot-left" id="titlebar-window-slot-left"></div>
-          <button class="titlebar-btn titlebar-menu-btn" id="titlebar-layout" type="button" title="Mostrar u ocultar la barra lateral">☰</button>
+          <button class="titlebar-btn titlebar-menu-btn" id="titlebar-layout" type="button" title="Ocultar la barra lateral" aria-expanded="true" aria-controls="app-body">☰</button>
           <button class="titlebar-brand-button" id="titlebar-more" type="button" title="Cambiar workspace">
             <span class="brand-mark">C</span>
             <span class="brand-lockup">
@@ -381,12 +385,15 @@ function renderComesadeSurface(): void {
             <span>Buscar</span>
             <kbd>Ctrl K</kbd>
           </button>
+          <button class="titlebar-btn titlebar-update" id="titlebar-update" type="button" title="Hay una actualización disponible" hidden>
+            ${icons.download}<span>Actualizar</span>
+          </button>
           <button class="titlebar-btn" id="titlebar-inspector-toggle" type="button" title="Mostrar u ocultar inspector">▣</button>
           <div class="titlebar-window-slot titlebar-window-slot-right" id="titlebar-window-slot-right"></div>
         </div>
       </header>
 
-      <div class="app-body">
+      <div class="app-body" id="app-body">
         <aside class="sidebar" aria-label="Navegación principal">
           <div class="sidebar-identity">
             <strong>Workspaces</strong>
@@ -1084,6 +1091,11 @@ const API_MONITOR_TIMEOUT_MS = 6_000;
 let localRuntimeState = 'LOCAL / STARTING';
 let apiConnectionState = 'API / CHECKING';
 let apiMonitorTimer: number | undefined;
+let availableAppUpdate: AppUpdate | null = null;
+let appUpdateInstalling = false;
+let appUpdateCheckCompleted = false;
+let appUpdateCheckError: unknown = null;
+let appUpdateCheckPromise: Promise<void> | null = null;
 
 type ApiHealthPayload = {
   database?: string;
@@ -1414,6 +1426,140 @@ function showToast(message: string, error = false): void {
   toast.classList.add('toast-visible');
   if (toastTimer) window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove('toast-visible'), 3600);
+}
+
+function renderUpdateButton(): void {
+  const button = document.querySelector<HTMLButtonElement>('#titlebar-update');
+  if (!button) return;
+  const visible = Boolean(availableAppUpdate);
+  button.hidden = !visible;
+  if (!visible) return;
+  button.disabled = appUpdateInstalling;
+  button.innerHTML = `${appUpdateInstalling ? icons.refresh : icons.download}<span>${appUpdateInstalling ? 'Actualizando…' : 'Actualizar'}</span>`;
+  button.title = appUpdateInstalling
+    ? 'Instalando la actualización firmada'
+    : `Actualizar ComesADE a ${availableAppUpdate?.version ?? 'la última versión'}`;
+  button.setAttribute('aria-label', button.title);
+}
+
+function updateInstallProgress(message: string): void {
+  const status = document.querySelector<HTMLElement>('#app-update-progress');
+  if (status) status.textContent = message;
+}
+
+function openAppUpdateModal(): void {
+  const update = availableAppUpdate;
+  if (!update || appUpdateInstalling) return;
+  const notes = String(update.body ?? '').trim().slice(0, 5000);
+  const notesMarkup = notes
+    ? escapeHtml(notes).replace(/\r?\n/g, '<br>')
+    : 'Esta versión incluye mejoras y correcciones para tu dispositivo.';
+  const published = update.date ? new Date(update.date).toLocaleDateString() : '';
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="app-update-backdrop"><section class="modal-panel app-update-modal"><div class="modal-heading"><div><span class="eyebrow">COMESADE / UPDATE</span><h2>Nueva versión disponible</h2></div><button class="modal-close" id="app-update-close" type="button">${icons.close}</button></div><div class="app-update-version"><strong>ComesADE ${escapeHtml(update.version)}</strong><span>${published ? `Publicada ${escapeHtml(published)}` : 'Release estable'}</span></div><p class="modal-copy">La actualización se descargará desde GitHub y se validará con la firma de ComesADE antes de instalarse.</p><div class="app-update-notes">${notesMarkup}</div><p class="app-update-progress" id="app-update-progress" role="status" aria-live="polite">Lista para instalar.</p><div class="modal-actions"><button class="secondary-button" id="app-update-cancel" type="button">Ahora no</button><button class="primary-button" id="app-update-install" type="button">${icons.download}<span>Instalar actualización</span></button></div></section></div>`;
+  const close = (): void => { if (!appUpdateInstalling) modalRoot.innerHTML = ''; };
+  document.querySelector<HTMLButtonElement>('#app-update-close')?.addEventListener('click', close);
+  document.querySelector<HTMLButtonElement>('#app-update-cancel')?.addEventListener('click', close);
+  document.querySelector<HTMLElement>('#app-update-backdrop')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) close();
+  });
+  document.querySelector<HTMLButtonElement>('#app-update-install')?.addEventListener('click', () => { void installAppUpdate(); });
+}
+
+async function checkForAppUpdate(manual = false): Promise<void> {
+  if (appUpdateCheckPromise) {
+    await appUpdateCheckPromise;
+  } else if (!appUpdateCheckCompleted || manual) {
+    appUpdateCheckError = null;
+    const request = (async () => {
+      try {
+        availableAppUpdate = await check();
+        renderUpdateButton();
+      } catch (error) {
+        availableAppUpdate = null;
+        appUpdateCheckError = error;
+        renderUpdateButton();
+        // Un release ausente, un repositorio privado o estar sin red no deben
+        // bloquear el arranque ni llenar la interfaz de errores.
+        console.debug('ComesADE update check skipped:', error);
+      } finally {
+        appUpdateCheckCompleted = true;
+      }
+    })();
+    appUpdateCheckPromise = request;
+    try {
+      await request;
+    } finally {
+      appUpdateCheckPromise = null;
+    }
+  }
+
+  if (!manual) return;
+  if (availableAppUpdate) {
+    openAppUpdateModal();
+  } else if (appUpdateCheckError) {
+    showToast('No se pudo comprobar si hay actualizaciones.', true);
+  } else {
+    showToast('ComesADE ya esta actualizado.');
+  }
+}
+
+async function installAppUpdate(): Promise<void> {
+  const update = availableAppUpdate;
+  if (!update || appUpdateInstalling) return;
+  appUpdateInstalling = true;
+  renderUpdateButton();
+  const installButton = document.querySelector<HTMLButtonElement>('#app-update-install');
+  const cancelButton = document.querySelector<HTMLButtonElement>('#app-update-cancel');
+  if (installButton) {
+    installButton.disabled = true;
+    installButton.textContent = 'Descargando…';
+  }
+  if (cancelButton) cancelButton.disabled = true;
+  updateInstallProgress('Conectando con el release firmado…');
+  let downloaded = 0;
+  let contentLength = 0;
+  let installed = false;
+  try {
+    await update.downloadAndInstall((event) => {
+      if (event.event === 'Started') {
+        contentLength = event.data.contentLength ?? 0;
+        updateInstallProgress(contentLength ? `Descargando 0% (${formatUpdateBytes(contentLength)})` : 'Descargando actualización…');
+        return;
+      }
+      if (event.event === 'Progress') {
+        downloaded += event.data.chunkLength;
+        const progress = contentLength ? ` ${Math.min(99, Math.round((downloaded / contentLength) * 100))}%` : '';
+        updateInstallProgress(`Descargando${progress}…`);
+        return;
+      }
+      if (event.event === 'Finished') {
+        if (installButton) installButton.textContent = 'Instalando…';
+        updateInstallProgress('Descarga verificada. Instalando…');
+      }
+    });
+    installed = true;
+    availableAppUpdate = null;
+    appUpdateInstalling = false;
+    renderUpdateButton();
+    updateInstallProgress('Actualización instalada. Reiniciando ComesADE…');
+    await relaunch();
+  } catch (error) {
+    appUpdateInstalling = false;
+    renderUpdateButton();
+    if (installed) {
+      modalRoot.innerHTML = '';
+      showToast('La actualización quedó instalada. Cierra y abre ComesADE para terminar.', true);
+      return;
+    }
+    showToast(`No se pudo instalar la actualización: ${String(error)}`, true);
+    openAppUpdateModal();
+  }
+}
+
+function formatUpdateBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'tamaño desconocido';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function primaryModifier(event: KeyboardEvent): boolean {
@@ -2268,6 +2414,7 @@ function saveWorkspaceLayout(patch: Partial<WorkspaceLayoutState>): void {
 function applyLayout(): void {
   const shell = document.querySelector<HTMLElement>('.app-shell');
   const workspaceMain = document.querySelector<HTMLElement>('.workspace-main');
+  const sidebarToggle = document.querySelector<HTMLButtonElement>('#titlebar-layout');
   shell?.style.setProperty('--sidebar-width', String(layoutState.sidebarWidth) + 'px');
   shell?.style.setProperty('--inspector-width', String(layoutState.inspectorWidth) + 'px');
   document.querySelector<HTMLElement>('.developer-dock')?.style.setProperty('--developer-editor-share', String(layoutState.developerEditorShare));
@@ -2275,6 +2422,11 @@ function applyLayout(): void {
   syncDeveloperDockVisibility();
   shell?.classList.toggle('sidebar-collapsed', layoutState.sidebarCollapsed);
   shell?.classList.toggle('inspector-collapsed', layoutState.inspectorCollapsed);
+  if (sidebarToggle) {
+    const sidebarVisible = !layoutState.sidebarCollapsed;
+    sidebarToggle.setAttribute('aria-expanded', String(sidebarVisible));
+    sidebarToggle.title = sidebarVisible ? 'Ocultar la barra lateral' : 'Mostrar la barra lateral';
+  }
   workspaceMain?.classList.remove('view-overview', 'view-asa', 'view-terminals', 'view-tools');
   workspaceMain?.classList.add(`view-${layoutState.view}`);
   document.querySelectorAll<HTMLElement>('[data-view]').forEach((item) => item.classList.toggle('is-active', item.dataset.view === layoutState.view));
@@ -3643,9 +3795,8 @@ function navigateViewHistory(direction: -1 | 1): void {
 }
 
 function toggleSidebar(): void {
-  const shell = document.querySelector<HTMLElement>('.app-shell');
   layoutState.sidebarCollapsed = !layoutState.sidebarCollapsed;
-  shell?.classList.toggle('sidebar-collapsed', layoutState.sidebarCollapsed);
+  applyLayout();
   saveLayout();
   scheduleLayoutSync();
 }
@@ -4328,6 +4479,24 @@ async function openSettingsModal(): Promise<void> {
   const settingsInfo = document.querySelector<HTMLElement>('.settings-info small');
   if (settingsInfo) settingsInfo.textContent = 'El shell, las notas y las herramientas permanecen en esta PC.';
   const closeToMenu = (): void => openMainMenu();
+  const settingsActions = document.querySelector<HTMLElement>('.settings-modal .modal-actions');
+  const checkUpdateButton = document.createElement('button');
+  checkUpdateButton.className = 'secondary-button';
+  checkUpdateButton.type = 'button';
+  checkUpdateButton.textContent = 'Buscar actualizaciones';
+  settingsActions?.insertBefore(checkUpdateButton, settingsActions.querySelector('#settings-save'));
+  checkUpdateButton.addEventListener('click', async () => {
+    checkUpdateButton.disabled = true;
+    checkUpdateButton.textContent = 'Comprobando...';
+    try {
+      await checkForAppUpdate(true);
+    } finally {
+      if (document.body.contains(checkUpdateButton)) {
+        checkUpdateButton.disabled = false;
+        checkUpdateButton.textContent = 'Buscar actualizaciones';
+      }
+    }
+  });
   document.querySelector<HTMLButtonElement>('#settings-close')!.addEventListener('click', closeToMenu);
   document.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', closeToMenu);
   document.querySelector<HTMLButtonElement>('#settings-save')!.addEventListener('click', () => {
@@ -4745,6 +4914,7 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#titlebar-more')?.addEventListener('click', () => openWorkspaceBrowser(false, true));
   document.querySelector<HTMLButtonElement>('#titlebar-back')?.addEventListener('click', () => navigateViewHistory(-1));
   document.querySelector<HTMLButtonElement>('#titlebar-forward')?.addEventListener('click', () => navigateViewHistory(1));
+  document.querySelector<HTMLButtonElement>('#titlebar-update')?.addEventListener('click', openAppUpdateModal);
   document.querySelector<HTMLButtonElement>('#titlebar-inspector-toggle')?.addEventListener('click', toggleInspector);
   document.querySelector<HTMLButtonElement>('#split-pane-btn-left')?.addEventListener('click', openSessionMenu);
   document.querySelector<HTMLButtonElement>('#split-pane-btn-right')?.addEventListener('click', openSessionMenu);
@@ -5072,6 +5242,7 @@ async function finishStartup(): Promise<void> {
   } else {
     appVersionLabel.textContent = 'COMESADE';
   }
+  void checkForAppUpdate();
   if (eventsResult.status === 'rejected') {
     setLocalRuntimeState('LOCAL / EVENTS ERROR');
     showToast(`No se pudieron conectar los eventos locales: ${String(eventsResult.reason)}`, true);

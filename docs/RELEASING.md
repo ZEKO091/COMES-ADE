@@ -82,6 +82,28 @@ inyectan como secretos temporales; nunca se commitean. Para generar Intel y
 Apple Silicon se puede definir `TAURI_TARGET` como
 `x86_64-apple-darwin` o `aarch64-apple-darwin`.
 
+## Actualizaciones firmadas
+
+El updater de Tauri valida una firma Minisign independiente de Authenticode o
+Developer ID. Genera una pareja estable una sola vez y conserva la clave
+privada fuera del repositorio:
+
+```powershell
+npm run tauri signer generate -- -w "$env:USERPROFILE\.tauri\comesade.key"
+```
+
+La clave publica se coloca en `src-tauri/tauri.conf.json`. Para builds locales
+define `TAURI_SIGNING_PRIVATE_KEY` y, si corresponde,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. El workflow de GitHub Actions necesita
+los mismos valores como secretos con esos nombres. No generes una clave nueva
+para cada release: los usuarios instalados solo aceptaran actualizaciones
+firmadas con la clave publica que ya tienen.
+
+Los builds firmados producen los paquetes del updater y sus archivos `.sig`.
+El workflow los combina en `latest.json` y lo publica junto a los artefactos de
+la etiqueta `v*` en GitHub Releases. La app consulta:
+`https://github.com/ZEKO091/COMES-ADE/releases/latest/download/latest.json`.
+
 ## Pipeline seguro
 
 `.github/workflows/signed-builds.yml` está preparado para ejecución manual o
