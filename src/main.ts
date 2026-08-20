@@ -47,12 +47,42 @@ type CustomAgentDefinition = { id: string; name: string; executable: string; arg
 type ShellDefinition = { id: string; name: string; executable: string; path: string | null; installed: boolean; isDefault?: boolean };
 type RuntimePlatform = { os: string; defaultShell: string; defaultShellName: string };
 type AppUpdate = NonNullable<Awaited<ReturnType<typeof check>>>;
+type GithubReleaseAsset = { name: string; browser_download_url: string };
+type GithubReleaseUpdate = {
+  source: 'github';
+  version: string;
+  body: string;
+  date: string | null;
+  downloadUrl: string;
+  downloadLabel: string;
+  releaseUrl: string;
+};
+type AvailableAppUpdate = AppUpdate | GithubReleaseUpdate;
 type FsEntry = { name: string; path: string; kind: 'file' | 'directory'; size: number; modifiedAt: number | null };
 type SearchMatch = { path: string; line: number; text: string };
 type GitStatusEntry = { path: string; indexStatus: string; worktreeStatus: string; kind: string };
 type GitStatusResult = { branch: string; entries: GitStatusEntry[] };
 type GitAvailability = { available: boolean; path: string | null; version: string | null };
-type GithubAuthStatus = { connected: boolean; cliAvailable: boolean; login: string | null; host: string | null; error: string | null };
+type GithubAuthStatus = { connected: boolean; oauthConfigured: boolean; login: string | null; displayName: string | null; avatarUrl: string | null; host: string | null; error: string | null };
+type GithubDeviceAuthorization = { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn: number };
+type GithubOAuthPoll = { status: 'pending' | 'connected' | 'error'; interval: number; auth: GithubAuthStatus | null; error: string | null };
+type GithubRepository = {
+  id: number;
+  name: string;
+  fullName: string;
+  ownerLogin: string;
+  description: string | null;
+  private: boolean;
+  fork: boolean;
+  archived: boolean;
+  visibility: string | null;
+  htmlUrl: string;
+  cloneUrl: string;
+  sshUrl: string;
+  defaultBranch: string | null;
+  updatedAt: string | null;
+  pushedAt: string | null;
+};
 type GitWorktree = { path: string; head: string; branch: string | null; detached: boolean };
 type GitBranch = { name: string; current: boolean; upstream: string | null };
 type GitFileVersions = { original: string; current: string };
@@ -351,7 +381,7 @@ function renderComesadeLegacyReference(): void {
     "    <aside class='sidebar' aria-label='Navegación principal'><div class='sidebar-identity'><span class='sidebar-kicker'>LOCAL DESKTOP</span><span class='product-badge'>ADE / ASA</span></div><div class='sidebar-section-label'>Producto</div><nav class='sidebar-nav' aria-label='Producto'><button class='sidebar-nav-item is-active' data-view='overview' type='button'><span class='nav-glyph'>▦</span><span><strong>ADE</strong><small>Workspace</small></span></button><button class='sidebar-nav-item' data-view='asa' type='button'><span class='nav-glyph'>✦</span><span><strong>ASA</strong><small>Agentes y sesiones</small></span></button><button class='sidebar-nav-item' data-view='terminals' type='button'><span class='nav-glyph'>›_</span><span><strong>Terminal</strong><small>Shells locales</small></span></button><button class='sidebar-nav-item' data-view='tools' type='button'><span class='nav-glyph'>◎</span><span><strong>Tools</strong><small>Browser y preview</small></span></button></nav>",
     "      <div class='sidebar-section-title'><span>Workspaces</span><button class='icon-button' id='sidebar-open-workspaces' type='button' title='Abrir workspace'>+</button></div><button class='active-workspace-card' id='active-workspace-card' type='button'><span class='workspace-card-icon'>□</span><span class='workspace-card-copy'><strong id='active-workspace-name'>Sin workspace</strong><small id='active-workspace-path'>Crea o abre una carpeta</small></span><span class='workspace-card-chevron'>›</span></button><div class='sidebar-project-empty' id='sidebar-project-empty' hidden><span>□</span><strong>Sin workspace</strong><small>Abre una carpeta local para empezar.</small></div>",
     "      <div class='sidebar-workspace-heading'><span id='sidebar-project-label'>Workspace</span><button class='icon-button' id='sidebar-filter-btn' type='button' title='Filtros: todas las sesiones'>≡</button></div><div class='session-list' id='session-list'></div><div class='sidebar-session-actions'><input class='sidebar-search-input' id='sidebar-search-input' type='search' placeholder='Filtrar sesiones' aria-label='Filtrar sesiones' /><button class='secondary-button sidebar-new-session' id='sidebar-new-session' type='button'>+<span>Nueva sesión</span></button></div>",
-    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.19</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
+    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>1.20.0</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
     "    </aside>",
     "    <main class='workspace-main view-overview'><header class='workspace-header'><div class='workspace-header-copy'><span class='eyebrow'>ADE / LOCAL WORKSPACE</span><h1 id='workspace-heading'>Sin workspace seleccionado</h1><p id='workspace-header-path'>Crea o abre un workspace para comenzar.</p></div><div class='workspace-header-actions'><button class='header-button' id='open-workspace-menu' type='button'>Workspace</button><button class='header-button' id='open-browser-menu' type='button'>Browser</button><button class='header-button header-button-primary' id='header-new-session' type='button'>+<span>Nueva sesión</span></button></div></header>",
     "      <div class='workspace-views-stack' id='workspace-views-stack'>",
@@ -408,11 +438,11 @@ function renderComesadeSurface(): void {
             <small>Desktop local-first</small>
           </div>
 
-          <div class="sidebar-github-card" id="github-account-card" role="status" aria-live="polite">
+          <button class="sidebar-github-card" id="github-account-card" type="button" aria-label="Abrir repositorios de GitHub" aria-live="polite">
             <span class="github-account-icon">${icons.github}</span>
             <span class="github-account-copy"><strong id="github-account-label">GitHub</strong><small id="github-account-status">Comprobando conexiÃ³n...</small></span>
             <span class="github-account-dot" id="github-account-dot"></span>
-          </div>
+          </button>
 
           <nav class="sidebar-nav" aria-label="Vistas principales">
             <button class="sidebar-nav-item is-active" data-view="overview" type="button">
@@ -478,7 +508,7 @@ function renderComesadeSurface(): void {
             <div class="sidebar-footer-actions">
               <button class="icon-button sidebar-refresh-action" id="refresh-workspace-btn" type="button" title="Actualizar sesiones, archivos y Git" aria-label="Actualizar sesiones, archivos y Git">${icons.refresh}</button>
             </div>
-            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.19</span></div>
+            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">1.20.0</span></div>
           </div>
           <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
         </aside>
@@ -754,16 +784,16 @@ function renderComesadeSurface(): void {
             <h1 id="github-auth-title">Conecta GitHub para continuar</h1>
           </div>
         </div>
-        <p class="github-auth-copy" id="github-auth-copy">ComesADE necesita una cuenta real de GitHub conectada antes de abrir el escritorio. Tu token permanece en el almacen seguro de GitHub CLI.</p>
+        <p class="github-auth-copy" id="github-auth-copy">ComesADE necesita que conectes tu cuenta real de GitHub antes de abrir el escritorio. La credencial se guarda en el almacen seguro de este sistema.</p>
         <div class="github-auth-status" role="status" aria-live="polite">
           <span class="github-auth-status-dot" id="github-auth-status-dot"></span>
-          <span><strong id="github-auth-status-title">Comprobando conexion</strong><small id="github-auth-status-detail">Verificando GitHub CLI...</small></span>
+          <span><strong id="github-auth-status-title">Comprobando conexion</strong><small id="github-auth-status-detail">Verificando la autorizacion de GitHub...</small></span>
         </div>
         <div class="github-auth-actions">
-          <button class="primary-button" id="github-auth-connect" type="button">${icons.github}<span>Conect Github</span></button>
+          <button class="primary-button" id="github-auth-connect" type="button">${icons.github}<span>Conectar GitHub</span></button>
           <button class="secondary-button" id="github-auth-check" type="button">Ya estoy conectado</button>
         </div>
-        <small class="github-auth-note" id="github-auth-note">Se abrira el flujo web oficial de GitHub en tu navegador.</small>
+        <small class="github-auth-note" id="github-auth-note">Se abrira el flujo oficial de autorizacion de GitHub en tu navegador.</small>
       </section>
     </div>
     <div id="modal-root"></div>
@@ -1142,6 +1172,8 @@ const currentAppWebview = getCurrentWebview();
 const API_BASE_URL = 'https://comesade-api.kingfrianfrian16.workers.dev';
 const API_HEALTH_ENDPOINT = `${API_BASE_URL}/health`;
 const API_READY_ENDPOINT = `${API_BASE_URL}/v1`;
+const GITHUB_CLIENT_ID = (import.meta.env.VITE_GITHUB_CLIENT_ID ?? '').trim();
+const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/ZEKO091/COMES-ADE/releases/latest';
 const API_MONITOR_INTERVAL_MS = 60_000;
 const API_MONITOR_TIMEOUT_MS = 6_000;
 const APP_UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
@@ -1149,20 +1181,28 @@ let localRuntimeState = 'LOCAL / STARTING';
 let apiConnectionState = 'API / CHECKING';
 let apiMonitorTimer: number | undefined;
 let appUpdateCheckTimer: number | undefined;
-let availableAppUpdate: AppUpdate | null = null;
+let availableAppUpdate: AvailableAppUpdate | null = null;
 let appUpdateInstalling = false;
 let appUpdateCheckCompleted = false;
 let appUpdateCheckError: unknown = null;
 let appUpdateCheckPromise: Promise<void> | null = null;
 let githubAuth: GithubAuthStatus = {
   connected: false,
-  cliAvailable: true,
+  oauthConfigured: Boolean(GITHUB_CLIENT_ID),
   login: null,
+  displayName: null,
+  avatarUrl: null,
   host: null,
   error: null,
 };
 let githubAuthBusy = false;
+let githubDeviceAuthorization: GithubDeviceAuthorization | null = null;
 let githubAuthCheckPromise: Promise<void> | null = null;
+let githubRepositories: GithubRepository[] = [];
+let githubRepositoriesLoading = false;
+let githubRepositoriesLoaded = false;
+let githubRepositoriesError: string | null = null;
+let githubRepositoriesRequest: Promise<void> | null = null;
 let authorizedStartupPromise: Promise<void> | null = null;
 
 type ApiHealthPayload = {
@@ -1194,10 +1234,11 @@ function renderGithubAuthState(): void {
   githubAccountDot.classList.toggle('is-error', !connected && !githubAuthBusy);
   githubAccountLabel.textContent = connected ? account : 'GitHub requerido';
   githubAccountStatus.textContent = connected ? 'Cuenta conectada' : githubAuthBusy ? 'Esperando conexion' : 'Conecta para continuar';
+  githubAccountCard.setAttribute('aria-label', connected ? 'Abrir repositorios de GitHub' : 'Conectar cuenta de GitHub');
 
-  githubAuthConnectButton.disabled = githubAuthBusy;
-  githubAuthCheckButton.disabled = githubAuthBusy;
-  githubAuthConnectButton.innerHTML = `${icons.github}<span>${githubAuthBusy ? 'Esperando GitHub...' : 'Conect Github'}</span>`;
+  githubAuthConnectButton.disabled = githubAuthBusy || !githubAuth.oauthConfigured;
+  githubAuthCheckButton.disabled = githubAuthBusy || !githubAuth.oauthConfigured;
+  githubAuthConnectButton.innerHTML = `${icons.github}<span>${githubAuthBusy ? 'Esperando GitHub...' : 'Conectar GitHub'}</span>`;
   githubAuthStatusDot.classList.toggle('is-connected', connected);
   githubAuthStatusDot.classList.toggle('is-error', !connected && !githubAuthBusy);
   githubAuthStatusDot.classList.toggle('is-pending', githubAuthBusy);
@@ -1205,24 +1246,28 @@ function renderGithubAuthState(): void {
   if (connected) {
     githubAuthStatusTitle.textContent = 'GitHub conectado';
     githubAuthStatusDetail.textContent = `Cuenta activa: ${account}`;
-    githubAuthNote.textContent = 'La sesion se administra con GitHub CLI y el almacen seguro del sistema.';
+    githubAuthNote.textContent = 'La cuenta se administra con OAuth y el almacen seguro de este sistema.';
     return;
   }
   if (githubAuthBusy) {
     githubAuthStatusTitle.textContent = 'Completa la autorizacion';
-    githubAuthStatusDetail.textContent = 'Termina el flujo web de GitHub y vuelve a esta ventana.';
-    githubAuthNote.textContent = 'No cierres el navegador hasta que GitHub confirme la cuenta.';
+    githubAuthStatusDetail.textContent = githubDeviceAuthorization
+      ? `Codigo ${githubDeviceAuthorization.userCode}. Autoriza la app en GitHub.`
+      : 'Preparando una autorizacion segura con GitHub.';
+    githubAuthNote.textContent = githubDeviceAuthorization
+      ? `Se abrio ${githubDeviceAuthorization.verificationUri}. Si no se abrio, visita esa direccion e introduce el codigo.`
+      : 'No cierres esta ventana hasta completar la autorizacion.';
     return;
   }
-  if (!githubAuth.cliAvailable) {
-    githubAuthStatusTitle.textContent = 'GitHub CLI no disponible';
-    githubAuthStatusDetail.textContent = githubAuth.error ?? 'Instala GitHub CLI y vuelve a intentarlo.';
-    githubAuthNote.textContent = 'Descarga GitHub CLI desde cli.github.com para continuar.';
+  if (!githubAuth.oauthConfigured) {
+    githubAuthStatusTitle.textContent = 'OAuth de GitHub no configurado';
+    githubAuthStatusDetail.textContent = githubAuth.error ?? 'Falta el Client ID de la GitHub App.';
+    githubAuthNote.textContent = 'Configura VITE_GITHUB_CLIENT_ID al compilar la aplicacion.';
     return;
   }
   githubAuthStatusTitle.textContent = 'GitHub requerido';
   githubAuthStatusDetail.textContent = githubAuth.error ?? 'No hay una cuenta activa en este equipo.';
-  githubAuthNote.textContent = 'Se abrira el flujo web oficial de GitHub en tu navegador.';
+  githubAuthNote.textContent = 'Se abrira el flujo oficial de autorizacion de GitHub en tu navegador.';
 }
 
 async function refreshGithubAuth(): Promise<GithubAuthStatus> {
@@ -1232,12 +1277,30 @@ async function refreshGithubAuth(): Promise<GithubAuthStatus> {
   }
   githubAuthCheckPromise = (async () => {
     try {
-      githubAuth = await invoke<GithubAuthStatus>('github_auth_status');
+      if (!GITHUB_CLIENT_ID) {
+        githubAuth = {
+          connected: false,
+          oauthConfigured: false,
+          login: null,
+          displayName: null,
+          avatarUrl: null,
+          host: null,
+          error: 'Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App.',
+        };
+      } else {
+        githubAuth = await invoke<GithubAuthStatus>('github_auth_status', { clientId: GITHUB_CLIENT_ID });
+      }
+      if (!githubAuth.connected) {
+        githubRepositories = [];
+        githubRepositoriesLoaded = false;
+      }
     } catch (error) {
       githubAuth = {
         connected: false,
-        cliAvailable: false,
+        oauthConfigured: Boolean(GITHUB_CLIENT_ID),
         login: null,
+        displayName: null,
+        avatarUrl: null,
         host: null,
         error: `No se pudo comprobar GitHub: ${String(error)}`,
       };
@@ -1252,12 +1315,57 @@ async function refreshGithubAuth(): Promise<GithubAuthStatus> {
 
 async function connectGithubAccount(): Promise<void> {
   if (githubAuthBusy) return;
+  if (!GITHUB_CLIENT_ID) {
+    githubAuth = {
+      ...githubAuth,
+      connected: false,
+      oauthConfigured: false,
+      error: 'Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App.',
+    };
+    renderGithubAuthState();
+    showToast(
+      githubAuth.error ??
+        'Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App.',
+      true,
+    );
+    return;
+  }
   githubAuthBusy = true;
+  githubDeviceAuthorization = null;
   githubAuth.error = null;
   renderGithubAuthState();
   try {
-    githubAuth = await invoke<GithubAuthStatus>('github_auth_login');
-    if (!githubAuth.connected) throw new Error(githubAuth.error ?? 'GitHub no quedo conectado.');
+    const device = await invoke<GithubDeviceAuthorization>('github_oauth_start', { clientId: GITHUB_CLIENT_ID });
+    githubDeviceAuthorization = device;
+    renderGithubAuthState();
+    try {
+      await invoke('open_external_url', { url: device.verificationUri });
+    } catch (error) {
+      githubAuth.error = `No se pudo abrir el navegador: ${String(error)}`;
+      renderGithubAuthState();
+    }
+
+    let intervalSeconds = Math.max(5, device.interval);
+    const expiresAt = Date.now() + device.expiresIn * 1000;
+    let connectedAuth: GithubAuthStatus | null = null;
+    while (Date.now() < expiresAt) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, intervalSeconds * 1000));
+      const poll = await invoke<GithubOAuthPoll>('github_oauth_poll', {
+        clientId: GITHUB_CLIENT_ID,
+        deviceCode: device.deviceCode,
+        interval: intervalSeconds,
+      });
+      if (poll.status === 'connected' && poll.auth?.connected) {
+        connectedAuth = poll.auth;
+        break;
+      }
+      if (poll.status === 'error') {
+        throw new Error(poll.error ?? 'GitHub no pudo completar la autorizacion.');
+      }
+      intervalSeconds = Math.max(5, poll.interval || intervalSeconds);
+    }
+    if (!connectedAuth) throw new Error('El codigo de autorizacion de GitHub expiro.');
+    githubAuth = connectedAuth;
     showToast(`GitHub conectado como @${githubAuth.login ?? 'usuario'}.`);
     await finishAuthorizedStartup();
   } catch (error) {
@@ -1269,6 +1377,7 @@ async function connectGithubAccount(): Promise<void> {
     showToast(githubAuth.error ?? 'No se pudo conectar GitHub.', true);
   } finally {
     githubAuthBusy = false;
+    githubDeviceAuthorization = null;
     renderGithubAuthState();
   }
 }
@@ -1280,6 +1389,102 @@ async function checkGithubAccount(): Promise<void> {
     return;
   }
   showToast(status.error ?? 'Conecta GitHub para continuar.', true);
+}
+
+function formatGithubDate(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+}
+
+function renderGithubRepositoryList(search = '', selectedFullName = ''): void {
+  const list = document.querySelector<HTMLDivElement>('#github-repository-list');
+  const account = document.querySelector<HTMLElement>('#github-repository-account');
+  if (!list) return;
+
+  if (account) {
+    account.textContent = githubAuth.connected
+      ? `Cuenta activa: @${githubAuth.login ?? 'usuario'}`
+      : githubAuth.error ?? 'Conecta GitHub para consultar tus repositorios.';
+  }
+
+  if (githubRepositoriesLoading) {
+    list.innerHTML = '<div class="github-repository-state">Consultando repositorios reales de GitHub…</div>';
+    return;
+  }
+  if (githubRepositoriesError) {
+    list.innerHTML = `<div class="github-repository-state github-repository-state-error">${escapeHtml(githubRepositoriesError)}</div>`;
+    return;
+  }
+  if (!githubRepositoriesLoaded) {
+    list.innerHTML = '<div class="github-repository-state">Pulsa actualizar para consultar los repositorios de esta cuenta.</div>';
+    return;
+  }
+
+  const query = search.trim().toLowerCase();
+  const repositories = githubRepositories.filter((repository) => {
+    if (!query) return true;
+    return [repository.fullName, repository.description ?? '', repository.defaultBranch ?? '']
+      .some((value) => value.toLowerCase().includes(query));
+  });
+  if (!repositories.length) {
+    list.innerHTML = githubRepositories.length
+      ? '<div class="github-repository-state">No hay repositorios que coincidan con la búsqueda.</div>'
+      : '<div class="github-repository-state">GitHub no devolvió repositorios para esta cuenta.</div>';
+    return;
+  }
+
+  list.innerHTML = repositories.map((repository) => {
+    const selected = repository.fullName === selectedFullName;
+    const visibility = repository.private ? 'PRIVATE' : 'PUBLIC';
+    const flags = [visibility, repository.fork ? 'FORK' : '', repository.archived ? 'ARCHIVED' : '']
+      .filter(Boolean)
+      .join(' · ');
+    const updated = formatGithubDate(repository.updatedAt);
+    return `<button class="github-repository-row${selected ? ' is-selected' : ''}" data-github-repository="${escapeHtml(repository.fullName)}" type="button" role="option" aria-selected="${String(selected)}">
+      <span class="github-repository-mark">${icons.folder}</span>
+      <span class="github-repository-copy"><strong>${escapeHtml(repository.fullName)}</strong><small>${escapeHtml(repository.description || 'Sin descripción')}</small></span>
+      <span class="github-repository-meta"><i>${escapeHtml(flags)}</i><small>${escapeHtml(repository.defaultBranch ? `↳ ${repository.defaultBranch}` : '')}${updated ? ` · ${escapeHtml(updated)}` : ''}</small></span>
+    </button>`;
+  }).join('');
+}
+
+async function loadGithubRepositories(force = false): Promise<void> {
+  if (githubRepositoriesRequest) {
+    await githubRepositoriesRequest;
+    return;
+  }
+  if (githubRepositoriesLoaded && !force) {
+    renderGithubRepositoryList(document.querySelector<HTMLInputElement>('#github-repository-search')?.value ?? '');
+    return;
+  }
+
+  const request = (async () => {
+    githubRepositoriesLoading = true;
+    githubRepositoriesError = null;
+    renderGithubRepositoryList();
+    try {
+      const status = await refreshGithubAuth();
+      if (!status.connected) {
+        throw new Error(status.error ?? 'Conecta GitHub para consultar repositorios.');
+      }
+      githubRepositories = await invoke<GithubRepository[]>('github_repositories', { clientId: GITHUB_CLIENT_ID });
+      githubRepositoriesLoaded = true;
+    } catch (error) {
+      githubRepositoriesLoaded = false;
+      githubRepositoriesError = error instanceof Error ? error.message : String(error);
+    } finally {
+      githubRepositoriesLoading = false;
+      renderGithubRepositoryList(document.querySelector<HTMLInputElement>('#github-repository-search')?.value ?? '');
+    }
+  })();
+  githubRepositoriesRequest = request;
+  try {
+    await request;
+  } finally {
+    if (githubRepositoriesRequest === request) githubRepositoriesRequest = null;
+  }
 }
 
 function updateConnectionStateLabel(): void {
@@ -1599,6 +1804,83 @@ function showToast(message: string, error = false): void {
   toastTimer = window.setTimeout(() => toast.classList.remove('toast-visible'), 3600);
 }
 
+function isGithubReleaseUpdate(update: AvailableAppUpdate): update is GithubReleaseUpdate {
+  return 'source' in update && update.source === 'github';
+}
+
+function normalizeReleaseVersion(value: string): string | null {
+  const match = value.trim().replace(/^v/i, '').match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  return match ? `${match[1]}.${match[2] ?? '0'}.${match[3] ?? '0'}` : null;
+}
+
+function compareReleaseVersions(left: string, right: string): number {
+  const leftVersion = normalizeReleaseVersion(left);
+  const rightVersion = normalizeReleaseVersion(right);
+  if (!leftVersion || !rightVersion) return left.localeCompare(right);
+  const leftParts = leftVersion.split('.').map(Number);
+  const rightParts = rightVersion.split('.').map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index];
+  }
+  return 0;
+}
+
+function isGithubReleaseAsset(value: unknown): value is GithubReleaseAsset {
+  if (!value || typeof value !== 'object') return false;
+  const asset = value as Record<string, unknown>;
+  return typeof asset.name === 'string' && typeof asset.browser_download_url === 'string';
+}
+
+async function checkGithubReleaseUpdate(): Promise<GithubReleaseUpdate | null> {
+  const currentVersion = await getVersion();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    const response = await fetch(GITHUB_RELEASE_API_URL, {
+      cache: 'no-store',
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`GitHub Releases respondio ${response.status}.`);
+
+    const release = await response.json() as {
+      tag_name?: unknown;
+      body?: unknown;
+      published_at?: unknown;
+      html_url?: unknown;
+      draft?: unknown;
+      prerelease?: unknown;
+      assets?: unknown;
+    };
+    if (release.draft === true || release.prerelease === true) return null;
+
+    const tag = typeof release.tag_name === 'string' ? release.tag_name : '';
+    const remoteVersion = normalizeReleaseVersion(tag);
+    const localVersion = normalizeReleaseVersion(currentVersion);
+    const releaseUrl = typeof release.html_url === 'string' ? release.html_url : '';
+    if (!remoteVersion || !localVersion || !releaseUrl) throw new Error('La release de GitHub no tiene metadatos validos.');
+    if (compareReleaseVersions(remoteVersion, localVersion) <= 0) return null;
+
+    const assets = Array.isArray(release.assets) ? release.assets.filter(isGithubReleaseAsset) : [];
+    const installer = assets.find((asset) => asset.name === 'ComesADE-Setup.exe')
+      ?? assets.find((asset) => asset.name.toLowerCase().endsWith('_x64-setup.exe'))
+      ?? assets.find((asset) => asset.name.toLowerCase().endsWith('.exe'));
+
+    return {
+      source: 'github',
+      version: remoteVersion,
+      body: typeof release.body === 'string' ? release.body : '',
+      date: typeof release.published_at === 'string' ? release.published_at : null,
+      downloadUrl: installer?.browser_download_url ?? releaseUrl,
+      downloadLabel: installer ? 'Descargar instalador' : 'Abrir release',
+      releaseUrl,
+    };
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function renderUpdateButton(): void {
   const button = document.querySelector<HTMLButtonElement>('#titlebar-update');
   if (!button) return;
@@ -1606,10 +1888,13 @@ function renderUpdateButton(): void {
   button.hidden = !visible;
   if (!visible) return;
   button.disabled = appUpdateInstalling;
-  button.innerHTML = `${appUpdateInstalling ? icons.refresh : icons.download}<span>${appUpdateInstalling ? 'Actualizando…' : 'Actualizar'}</span>`;
+  const githubFallback = availableAppUpdate && isGithubReleaseUpdate(availableAppUpdate);
+  button.innerHTML = `${appUpdateInstalling ? icons.refresh : icons.download}<span>${appUpdateInstalling ? 'Actualizando…' : githubFallback ? 'Descargar' : 'Actualizar'}</span>`;
   button.title = appUpdateInstalling
     ? 'Instalando la actualización firmada'
-    : `Actualizar ComesADE a ${availableAppUpdate?.version ?? 'la última versión'}`;
+    : githubFallback
+      ? `Descargar ComesADE ${availableAppUpdate?.version ?? 'la última versión'} desde GitHub`
+      : `Actualizar ComesADE a ${availableAppUpdate?.version ?? 'la última versión'}`;
   button.setAttribute('aria-label', button.title);
 }
 
@@ -1646,7 +1931,16 @@ function openAppUpdateModal(): void {
     ? escapeHtml(notes).replace(/\r?\n/g, '<br>')
     : 'Esta versión incluye mejoras y correcciones para tu dispositivo.';
   const published = update.date ? new Date(update.date).toLocaleDateString() : '';
+  const githubFallback = isGithubReleaseUpdate(update);
+  const modalCopy = githubFallback
+    ? 'Esta release no incluye el manifiesto firmado del updater. Se abrirá el instalador oficial desde GitHub.'
+    : 'La actualización se descargará desde GitHub y se validará con la firma de ComesADE antes de instalarse.';
+  const installLabel = githubFallback ? update.downloadLabel : 'Instalar actualización';
   modalRoot.innerHTML = `<div class="modal-backdrop" id="app-update-backdrop"><section class="modal-panel app-update-modal"><div class="modal-heading"><div><span class="eyebrow">COMESADE / UPDATE</span><h2>Nueva versión disponible</h2></div><button class="modal-close" id="app-update-close" type="button">${icons.close}</button></div><div class="app-update-version"><strong>ComesADE ${escapeHtml(update.version)}</strong><span>${published ? `Publicada ${escapeHtml(published)}` : 'Release estable'}</span></div><p class="modal-copy">La actualización se descargará desde GitHub y se validará con la firma de ComesADE antes de instalarse.</p><div class="app-update-notes">${notesMarkup}</div><p class="app-update-progress" id="app-update-progress" role="status" aria-live="polite">Lista para instalar.</p><div class="modal-actions"><button class="secondary-button" id="app-update-cancel" type="button">Ahora no</button><button class="primary-button" id="app-update-install" type="button">${icons.download}<span>Instalar actualización</span></button></div></section></div>`;
+  const copy = document.querySelector<HTMLElement>('.app-update-modal .modal-copy');
+  if (copy) copy.textContent = modalCopy;
+  const installButton = document.querySelector<HTMLButtonElement>('#app-update-install');
+  if (installButton) installButton.innerHTML = `${icons.download}<span>${installLabel}</span>`;
   const versionRow = document.querySelector<HTMLElement>('.app-update-version');
   if (versionRow) {
     const versionText = versionRow.querySelector('strong')?.textContent || `ComesADE ${update.version}`;
@@ -1678,7 +1972,20 @@ async function checkForAppUpdate(manual = false, force = false): Promise<void> {
     appUpdateCheckError = null;
     const request = (async () => {
       try {
-        availableAppUpdate = await check();
+        let signedCheckError: unknown = null;
+        let signedUpdate: AppUpdate | null = null;
+        try {
+          signedUpdate = await check();
+        } catch (error) {
+          signedCheckError = error;
+          console.debug('ComesADE signed update check skipped:', error);
+        }
+        try {
+          availableAppUpdate = signedUpdate ?? await checkGithubReleaseUpdate();
+        } catch (error) {
+          if (signedCheckError) throw error;
+          availableAppUpdate = null;
+        }
         renderUpdateButton();
       } catch (error) {
         availableAppUpdate = null;
@@ -1721,6 +2028,31 @@ function startAppUpdateChecker(): void {
 async function installAppUpdate(): Promise<void> {
   const update = availableAppUpdate;
   if (!update || appUpdateInstalling) return;
+  if (isGithubReleaseUpdate(update)) {
+    appUpdateInstalling = true;
+    renderUpdateButton();
+    const installButton = document.querySelector<HTMLButtonElement>('#app-update-install');
+    const cancelButton = document.querySelector<HTMLButtonElement>('#app-update-cancel');
+    const closeButton = document.querySelector<HTMLButtonElement>('#app-update-close');
+    if (installButton) installButton.disabled = true;
+    if (cancelButton) cancelButton.disabled = true;
+    if (closeButton) closeButton.disabled = true;
+    updateInstallProgress('Abriendo la descarga oficial de GitHub...');
+    try {
+      await invoke('open_external_url', { url: update.downloadUrl });
+      availableAppUpdate = null;
+      appUpdateInstalling = false;
+      renderUpdateButton();
+      modalRoot.innerHTML = '';
+      showToast('La descarga oficial de GitHub se abrió en el navegador.');
+    } catch (error) {
+      appUpdateInstalling = false;
+      renderUpdateButton();
+      showToast(`No se pudo abrir la descarga: ${String(error)}`, true);
+      openAppUpdateModal();
+    }
+    return;
+  }
   appUpdateInstalling = true;
   renderUpdateButton();
   const installButton = document.querySelector<HTMLButtonElement>('#app-update-install');
@@ -4652,10 +4984,71 @@ function openWorkspaceModal(returnToMenu = true, enterAfter = false): void {
 }
 
 function openCloneRepositoryModal(returnToMenu = true, enterAfter = true): void {
-  modalRoot.innerHTML = '<div class="modal-backdrop" id="clone-backdrop"><form class="modal-panel" id="clone-form"><div class="modal-heading"><div><span class="eyebrow">GIT / CLONE</span><h2>Clone repository</h2></div><button class="modal-close" id="clone-close" type="button">' + icons.close + '</button></div><p class="modal-copy">Ejecuta un clone Git real en este PC. La carpeta destino debe estar vacia.</p><label class="field-label" for="clone-url">Repository URL</label><input class="field-input" id="clone-url" placeholder="https://github.com/owner/repository.git" required/><label class="field-label" for="clone-destination">Destination</label><input class="field-input" id="clone-destination" placeholder="C:\\Users\\...\\Documents\\repository" required/><div class="modal-actions"><button class="secondary-button" id="clone-cancel" type="button">Cancel</button><button class="primary-button" type="submit">' + icons.folder + '<span>Clone</span></button></div></form></div>';
+  let selectedRepository: GithubRepository | null = null;
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="clone-backdrop"><form class="modal-panel clone-modal" id="clone-form"><div class="modal-heading"><div><span class="eyebrow">GIT / GITHUB</span><h2>Clone repository</h2></div><div class="github-modal-actions"><button class="secondary-button github-disconnect" id="github-disconnect" type="button">Desconectar</button><button class="modal-close" id="clone-close" type="button" aria-label="Cerrar">${icons.close}</button></div></div><p class="modal-copy">Selecciona un repositorio real de tu cuenta o usa una URL Git. El clone se ejecuta en este PC y la carpeta destino debe estar vacía.</p><section class="github-repository-picker" aria-labelledby="github-repository-heading"><div class="github-repository-heading"><div><span class="eyebrow">GITHUB / REPOSITORIES</span><strong id="github-repository-heading">Repositorios disponibles</strong><small id="github-repository-account">Comprobando cuenta…</small></div><button class="secondary-button github-repository-refresh" id="github-repositories-refresh" type="button">Actualizar</button></div><input class="field-input" id="github-repository-search" type="search" placeholder="Filtrar por nombre o descripción" autocomplete="off" aria-label="Filtrar repositorios de GitHub"/><div class="github-repository-list" id="github-repository-list" role="listbox" aria-label="Repositorios de GitHub"></div><div class="github-repository-selection" id="github-repository-selection" hidden></div></section><div class="clone-manual-fields"><label class="field-label" for="clone-url">Repository URL</label><input class="field-input" id="clone-url" placeholder="https://github.com/owner/repository.git" required/><label class="field-label" for="clone-destination">Destination</label><input class="field-input" id="clone-destination" placeholder="C:\\Users\\...\\Documents\\repository" required/></div><div class="modal-actions"><button class="secondary-button" id="clone-cancel" type="button">Cancel</button><button class="primary-button" type="submit">${icons.folder}<span>Clone</span></button></div></form></div>`;
+  const repositorySearch = document.querySelector<HTMLInputElement>('#github-repository-search')!;
+  const repositoryList = document.querySelector<HTMLDivElement>('#github-repository-list')!;
+  const repositorySelection = document.querySelector<HTMLElement>('#github-repository-selection')!;
+  const cloneUrlInput = document.querySelector<HTMLInputElement>('#clone-url')!;
+  const destinationInput = document.querySelector<HTMLInputElement>('#clone-destination')!;
+  const refreshRepositoriesButton = document.querySelector<HTMLButtonElement>('#github-repositories-refresh')!;
+  const disconnectButton = document.querySelector<HTMLButtonElement>('#github-disconnect')!;
+  const renderSelection = (): void => {
+    renderGithubRepositoryList(repositorySearch.value, selectedRepository?.fullName ?? '');
+    if (!selectedRepository) {
+      repositorySelection.hidden = true;
+      repositorySelection.textContent = '';
+      return;
+    }
+    repositorySelection.hidden = false;
+    repositorySelection.innerHTML = `<strong>Repositorio seleccionado</strong><span>${escapeHtml(selectedRepository.fullName)} · ${escapeHtml(selectedRepository.private ? 'privado' : 'público')}</span>`;
+  };
   const close = (): void => { modalRoot.innerHTML = ''; if (returnToMenu) openMainMenu(); };
   document.querySelector<HTMLButtonElement>('#clone-close')!.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#clone-cancel')!.addEventListener('click', close);
+  disconnectButton.addEventListener('click', async () => {
+    disconnectButton.disabled = true;
+    try {
+      await invoke('github_disconnect');
+      githubRepositories = [];
+      githubRepositoriesLoaded = false;
+      githubRepositoriesError = null;
+      await refreshGithubAuth();
+      modalRoot.innerHTML = '';
+      if (returnToMenu) openMainMenu();
+      showToast('Cuenta de GitHub desconectada de este equipo.');
+    } catch (error) {
+      disconnectButton.disabled = false;
+      showToast(`No se pudo desconectar GitHub: ${String(error)}`, true);
+    }
+  });
+  repositorySearch.addEventListener('input', () => renderSelection());
+  repositoryList.addEventListener('click', (event) => {
+    const fullName = (event.target as HTMLElement).closest<HTMLElement>('[data-github-repository]')?.dataset.githubRepository;
+    if (!fullName) return;
+    const repository = githubRepositories.find((candidate) => candidate.fullName === fullName);
+    if (!repository) return;
+    selectedRepository = repository;
+    cloneUrlInput.value = repository.cloneUrl;
+    const shouldAutofillDestination = !destinationInput.value.trim() || destinationInput.dataset.autofilled === 'true';
+    if (shouldAutofillDestination) {
+      void invoke<string>('default_workspace_path').then((basePath) => {
+        if (destinationInput.value.trim() && destinationInput.dataset.autofilled !== 'true') return;
+        const separator = basePath.includes('\\') ? '\\' : '/';
+        destinationInput.value = `${basePath.replace(/[\\/]+$/, '')}${separator}${repository.name}`;
+        destinationInput.dataset.autofilled = 'true';
+      }).catch(() => undefined);
+    }
+    renderSelection();
+  });
+  cloneUrlInput.addEventListener('input', () => {
+    if (selectedRepository && cloneUrlInput.value.trim() !== selectedRepository.cloneUrl) {
+      selectedRepository = null;
+      renderSelection();
+    }
+  });
+  destinationInput.addEventListener('input', () => { destinationInput.dataset.autofilled = 'false'; });
+  refreshRepositoriesButton.addEventListener('click', () => { void loadGithubRepositories(true); });
   document.querySelector<HTMLFormElement>('#clone-form')!.addEventListener('submit', async (event) => {
     event.preventDefault();
     const url = document.querySelector<HTMLInputElement>('#clone-url')!.value.trim();
@@ -4668,7 +5061,11 @@ function openCloneRepositoryModal(returnToMenu = true, enterAfter = true): void 
         if (submit) submit.disabled = false;
         return;
       }
-      await invoke<string>('clone_repository', { url, destination });
+      if (selectedRepository) {
+        await invoke<string>('github_clone_repository', { clientId: GITHUB_CLIENT_ID, repository: selectedRepository.fullName, destination });
+      } else {
+        await invoke<string>('clone_repository', { url, destination });
+      }
       modalRoot.innerHTML = '';
       await registerWorkspaceFromPath(destination, enterAfter);
       showToast('Repositorio clonado y abierto desde el disco real.');
@@ -4677,7 +5074,9 @@ function openCloneRepositoryModal(returnToMenu = true, enterAfter = true): void 
       showToast('No se pudo clonar el repositorio: ' + String(error), true);
     }
   });
-  document.querySelector<HTMLInputElement>('#clone-url')!.focus();
+  renderSelection();
+  void loadGithubRepositories();
+  repositorySearch.focus();
 }
 
 function openWorkspaceBrowser(returnToMenu = true, enterAfter = false): void {
@@ -5193,6 +5592,13 @@ function bindInteractions(): void {
   bindTerminalResizing();
   githubAuthConnectButton.addEventListener('click', () => { void connectGithubAccount(); });
   githubAuthCheckButton.addEventListener('click', () => { void checkGithubAccount(); });
+  githubAccountCard.addEventListener('click', () => {
+    if (!githubAuth.connected) {
+      void connectGithubAccount();
+      return;
+    }
+    openCloneRepositoryModal(false, true);
+  });
   /* Gemini shell handlers removed; ComesADE controls are bound below.
   const onClick = (selector: string, handler: () => void): void => {
     document.querySelector<HTMLElement>(selector)?.addEventListener('click', handler);

@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # Public GitHub App client ID used by the desktop Device Flow.
+  VITE_GITHUB_CLIENT_ID: Ov23likU101MbFvs0gWw
+
 concurrency:
   group: signed-build-${{ github.ref }}
   cancel-in-progress: true

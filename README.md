@@ -16,10 +16,14 @@ npm run tauri dev
 ## GitHub requerido
 
 ComesADE requiere una cuenta de GitHub conectada antes de abrir el escritorio.
-La app usa el flujo web oficial de GitHub CLI (`gh auth login --web`) y la
-credencial queda en el almacen seguro del sistema, no en la app. Si GitHub CLI
-no esta instalado, instalalo desde <https://cli.github.com/> y vuelve a abrir
-ComesADE.
+La app usa OAuth real de GitHub con Device Flow. Cada usuario autoriza su propia
+cuenta y la credencial queda en el almacen seguro del sistema, no en la app ni
+en GitHub CLI. Configura el Client ID publico de una GitHub App con
+`VITE_GITHUB_CLIENT_ID` antes de compilar. La app debe tener habilitado Device
+Flow y permisos de Metadata y Contents para consultar y clonar repositorios.
+Desde `Clone repository`, ComesADE consulta los repositorios accesibles de la
+cuenta mediante la API real de GitHub y clona el repositorio seleccionado usando
+la credencial del usuario.
 
 ## Verificaciones
 
@@ -57,7 +61,7 @@ npm run build:windows:signed
 Artefactos generados:
 
 - `src-tauri\target\release\comesade.exe`
-- `src-tauri\target\release\bundle\nsis\ComesADE_0.1.19_x64-setup.exe`
+- `src-tauri\target\release\bundle\nsis\ComesADE_1.20.0_x64-setup.exe`
 
 Para preparar una versión distribuible y firmada, consulta
 [`docs/RELEASING.md`](docs/RELEASING.md). Nunca guardes certificados,
