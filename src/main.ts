@@ -6,7 +6,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview, Webview } from '@tauri-apps/api/webview';
-import type * as Monaco from 'monaco-editor';
+import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { ILink, Terminal } from '@xterm/xterm';
 import { FitAddon as FitAddonClass } from '@xterm/addon-fit';
@@ -347,7 +347,7 @@ function renderComesadeLegacyReference(): void {
     "    <aside class='sidebar' aria-label='Navegación principal'><div class='sidebar-identity'><span class='sidebar-kicker'>LOCAL DESKTOP</span><span class='product-badge'>ADE / ASA</span></div><div class='sidebar-section-label'>Producto</div><nav class='sidebar-nav' aria-label='Producto'><button class='sidebar-nav-item is-active' data-view='overview' type='button'><span class='nav-glyph'>▦</span><span><strong>ADE</strong><small>Workspace</small></span></button><button class='sidebar-nav-item' data-view='asa' type='button'><span class='nav-glyph'>✦</span><span><strong>ASA</strong><small>Agentes y sesiones</small></span></button><button class='sidebar-nav-item' data-view='terminals' type='button'><span class='nav-glyph'>›_</span><span><strong>Terminal</strong><small>Shells locales</small></span></button><button class='sidebar-nav-item' data-view='tools' type='button'><span class='nav-glyph'>◎</span><span><strong>Tools</strong><small>Browser y preview</small></span></button></nav>",
     "      <div class='sidebar-section-title'><span>Workspaces</span><button class='icon-button' id='sidebar-open-workspaces' type='button' title='Abrir workspace'>+</button></div><button class='active-workspace-card' id='active-workspace-card' type='button'><span class='workspace-card-icon'>□</span><span class='workspace-card-copy'><strong id='active-workspace-name'>Sin workspace</strong><small id='active-workspace-path'>Crea o abre una carpeta</small></span><span class='workspace-card-chevron'>›</span></button><div class='sidebar-project-empty' id='sidebar-project-empty' hidden><span>□</span><strong>Sin workspace</strong><small>Abre una carpeta local para empezar.</small></div>",
     "      <div class='sidebar-workspace-heading'><span id='sidebar-project-label'>Workspace</span><button class='icon-button' id='sidebar-filter-btn' type='button' title='Filtros: todas las sesiones'>≡</button></div><div class='session-list' id='session-list'></div><div class='sidebar-session-actions'><input class='sidebar-search-input' id='sidebar-search-input' type='search' placeholder='Filtrar sesiones' aria-label='Filtrar sesiones' /><button class='secondary-button sidebar-new-session' id='sidebar-new-session' type='button'>+<span>Nueva sesión</span></button></div>",
-    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.17</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
+    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.18</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
     "    </aside>",
     "    <main class='workspace-main view-overview'><header class='workspace-header'><div class='workspace-header-copy'><span class='eyebrow'>ADE / LOCAL WORKSPACE</span><h1 id='workspace-heading'>Sin workspace seleccionado</h1><p id='workspace-header-path'>Crea o abre un workspace para comenzar.</p></div><div class='workspace-header-actions'><button class='header-button' id='open-workspace-menu' type='button'>Workspace</button><button class='header-button' id='open-browser-menu' type='button'>Browser</button><button class='header-button header-button-primary' id='header-new-session' type='button'>+<span>Nueva sesión</span></button></div></header>",
     "      <div class='workspace-views-stack' id='workspace-views-stack'>",
@@ -462,12 +462,9 @@ function renderComesadeSurface(): void {
               <span><strong>Runtime local</strong><small id="connection-state">LOCAL / STARTING</small></span>
             </button>
             <div class="sidebar-footer-actions">
-              <button class="icon-button" id="sidebar-help" type="button" title="Ayuda">?</button>
-              <button class="icon-button" id="sidebar-feedback" type="button" title="Comentarios">…</button>
-              <button class="icon-button" id="sidebar-stats" type="button" title="Estadísticas">▥</button>
-              <button class="icon-button" id="sidebar-settings" type="button" title="Configuración">⚙</button>
+              <button class="icon-button sidebar-refresh-action" id="refresh-workspace-btn" type="button" title="Actualizar sesiones, archivos y Git" aria-label="Actualizar sesiones, archivos y Git">${icons.refresh}</button>
             </div>
-            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.17</span></div>
+            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.18</span></div>
           </div>
           <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
         </aside>
@@ -723,7 +720,12 @@ function renderComesadeSurface(): void {
           <span class="statusbar-pill" id="runtime-usage-metric">PTY / READY</span>
         </div>
         <div class="statusbar-right-group">
-          <button class="statusbar-action" id="refresh-workspace-btn" type="button" title="Actualizar sesiones, archivos y Git">↻<span>Refresh</span></button>
+          <div class="statusbar-utility-actions" role="group" aria-label="Acciones rápidas">
+            <button class="icon-button" id="sidebar-help" type="button" title="Ayuda" aria-label="Ayuda">?</button>
+            <button class="icon-button" id="sidebar-feedback" type="button" title="Comentarios" aria-label="Comentarios">…</button>
+            <button class="icon-button" id="sidebar-stats" type="button" title="Estadísticas" aria-label="Estadísticas">▥</button>
+            <button class="icon-button" id="sidebar-settings" type="button" title="Configuración" aria-label="Configuración">⚙</button>
+          </div>
           <span class="statusbar-pill"><span id="memory-metric">—</span></span>
           <span class="statusbar-pill">›_ <span id="active-terminal-count">0</span></span>
         </div>
@@ -847,7 +849,7 @@ async function setupMonacoEditor(): Promise<void> {
 
   monacoLoadPromise = (async () => {
     const [monacoModule, editorWorkerModule, jsonWorkerModule, cssWorkerModule, htmlWorkerModule, tsWorkerModule] = await Promise.all([
-      import('monaco-editor'),
+      import('monaco-editor/esm/vs/editor/editor.api'),
       import('monaco-editor/esm/vs/editor/editor.worker?worker'),
       import('monaco-editor/esm/vs/language/json/json.worker?worker'),
       import('monaco-editor/esm/vs/language/css/css.worker?worker'),
@@ -1403,6 +1405,9 @@ let layoutState: LayoutState = {
   workspaces: {},
 };
 
+let compactViewport = false;
+let responsiveLayoutInitialized = false;
+
 const terminalTheme = {
   background: '#0b0e12',
   foreground: '#dfe7eb',
@@ -1454,9 +1459,29 @@ function renderUpdateButton(): void {
   button.setAttribute('aria-label', button.title);
 }
 
-function updateInstallProgress(message: string): void {
+function updateInstallProgress(message: string, percent?: number): void {
   const status = document.querySelector<HTMLElement>('#app-update-progress');
   if (status) status.textContent = message;
+  const value = document.querySelector<HTMLElement>('#app-update-progress-value');
+  const track = document.querySelector<HTMLElement>('#app-update-progress-track');
+  const bar = document.querySelector<HTMLElement>('#app-update-progress-bar');
+  if (!value || !track || !bar) return;
+  if (typeof percent === 'number' && Number.isFinite(percent)) {
+    const normalized = Math.min(100, Math.max(0, Math.round(percent)));
+    value.textContent = `${normalized}%`;
+    bar.style.width = `${normalized}%`;
+    track.classList.remove('is-indeterminate');
+    track.setAttribute('aria-valuenow', String(normalized));
+    track.setAttribute('aria-valuetext', `${normalized}%`);
+    return;
+  }
+  if (appUpdateInstalling) {
+    value.textContent = '...';
+    bar.style.width = '34%';
+    track.classList.add('is-indeterminate');
+    track.removeAttribute('aria-valuenow');
+    track.setAttribute('aria-valuetext', message);
+  }
 }
 
 function openAppUpdateModal(): void {
@@ -1468,6 +1493,21 @@ function openAppUpdateModal(): void {
     : 'Esta versión incluye mejoras y correcciones para tu dispositivo.';
   const published = update.date ? new Date(update.date).toLocaleDateString() : '';
   modalRoot.innerHTML = `<div class="modal-backdrop" id="app-update-backdrop"><section class="modal-panel app-update-modal"><div class="modal-heading"><div><span class="eyebrow">COMESADE / UPDATE</span><h2>Nueva versión disponible</h2></div><button class="modal-close" id="app-update-close" type="button">${icons.close}</button></div><div class="app-update-version"><strong>ComesADE ${escapeHtml(update.version)}</strong><span>${published ? `Publicada ${escapeHtml(published)}` : 'Release estable'}</span></div><p class="modal-copy">La actualización se descargará desde GitHub y se validará con la firma de ComesADE antes de instalarse.</p><div class="app-update-notes">${notesMarkup}</div><p class="app-update-progress" id="app-update-progress" role="status" aria-live="polite">Lista para instalar.</p><div class="modal-actions"><button class="secondary-button" id="app-update-cancel" type="button">Ahora no</button><button class="primary-button" id="app-update-install" type="button">${icons.download}<span>Instalar actualización</span></button></div></section></div>`;
+  const versionRow = document.querySelector<HTMLElement>('.app-update-version');
+  if (versionRow) {
+    const versionText = versionRow.querySelector('strong')?.textContent || `ComesADE ${update.version}`;
+    const publishedText = versionRow.querySelector('span')?.textContent || 'Release estable';
+    versionRow.innerHTML = `<div class="app-update-release"><span class="app-update-kicker">VERSION ESTABLE</span><strong>${escapeHtml(versionText)}</strong></div><span>${escapeHtml(publishedText)}</span>`;
+  }
+  const notesPanel = document.querySelector<HTMLElement>('.app-update-notes');
+  if (notesPanel) {
+    notesPanel.innerHTML = `<div class="app-update-notes-heading"><span>NOVEDADES</span><span>Release notes</span></div><div class="app-update-notes-body">${notesMarkup}</div>`;
+  }
+  const progressStatus = document.querySelector<HTMLElement>('#app-update-progress');
+  if (progressStatus) {
+    const initialMessage = escapeHtml(progressStatus.textContent || 'Lista para instalar.');
+    progressStatus.outerHTML = `<div class="app-update-status"><div class="app-update-status-header"><p class="app-update-progress" id="app-update-progress" role="status" aria-live="polite">${initialMessage}</p><strong class="app-update-progress-value" id="app-update-progress-value">-</strong></div><div class="app-update-progress-track" id="app-update-progress-track" role="progressbar" aria-label="Progreso de la actualizacion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="app-update-progress-bar" id="app-update-progress-bar"></span></div></div>`;
+  }
   const close = (): void => { if (!appUpdateInstalling) modalRoot.innerHTML = ''; };
   document.querySelector<HTMLButtonElement>('#app-update-close')?.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#app-update-cancel')?.addEventListener('click', close);
@@ -1531,11 +1571,13 @@ async function installAppUpdate(): Promise<void> {
   renderUpdateButton();
   const installButton = document.querySelector<HTMLButtonElement>('#app-update-install');
   const cancelButton = document.querySelector<HTMLButtonElement>('#app-update-cancel');
+  const closeButton = document.querySelector<HTMLButtonElement>('#app-update-close');
   if (installButton) {
     installButton.disabled = true;
     installButton.textContent = 'Descargando…';
   }
   if (cancelButton) cancelButton.disabled = true;
+  if (closeButton) closeButton.disabled = true;
   updateInstallProgress('Conectando con el release firmado…');
   let downloaded = 0;
   let contentLength = 0;
@@ -1544,18 +1586,19 @@ async function installAppUpdate(): Promise<void> {
     await update.downloadAndInstall((event) => {
       if (event.event === 'Started') {
         contentLength = event.data.contentLength ?? 0;
-        updateInstallProgress(contentLength ? `Descargando 0% (${formatUpdateBytes(contentLength)})` : 'Descargando actualización…');
+        updateInstallProgress(contentLength ? `Descargando 0% (${formatUpdateBytes(contentLength)})` : 'Descargando actualización…', contentLength ? 0 : undefined);
         return;
       }
       if (event.event === 'Progress') {
         downloaded += event.data.chunkLength;
-        const progress = contentLength ? ` ${Math.min(99, Math.round((downloaded / contentLength) * 100))}%` : '';
-        updateInstallProgress(`Descargando${progress}…`);
+        const progressValue = contentLength ? Math.min(99, Math.round((downloaded / contentLength) * 100)) : undefined;
+        const progress = typeof progressValue === 'number' ? ` ${progressValue}%` : '';
+        updateInstallProgress(`Descargando${progress}…`, progressValue);
         return;
       }
       if (event.event === 'Finished') {
         if (installButton) installButton.textContent = 'Instalando…';
-        updateInstallProgress('Descarga verificada. Instalando…');
+        updateInstallProgress('Descarga verificada. Instalando…', 100);
       }
     });
     installed = true;
@@ -2418,6 +2461,7 @@ function loadLayout(): void {
     }
   }
   applyLayout();
+  syncResponsiveLayout(true);
 }
 
 function saveLayout(): void {
@@ -2453,6 +2497,24 @@ function applyLayout(): void {
   workspaceMain?.classList.remove('view-overview', 'view-asa', 'view-terminals', 'view-tools');
   workspaceMain?.classList.add(`view-${layoutState.view}`);
   document.querySelectorAll<HTMLElement>('[data-view]').forEach((item) => item.classList.toggle('is-active', item.dataset.view === layoutState.view));
+}
+
+function syncResponsiveLayout(force = false): void {
+  const nextCompactViewport = window.innerWidth <= 760;
+  const viewportChanged = nextCompactViewport !== compactViewport;
+
+  if (nextCompactViewport && (force || !responsiveLayoutInitialized || viewportChanged)) {
+    if (!layoutState.sidebarCollapsed) {
+      layoutState.sidebarCollapsed = true;
+      applyLayout();
+    }
+  } else if (!nextCompactViewport && responsiveLayoutInitialized && viewportChanged && layoutState.sidebarCollapsed) {
+    layoutState.sidebarCollapsed = false;
+    applyLayout();
+  }
+
+  compactViewport = nextCompactViewport;
+  responsiveLayoutInitialized = true;
 }
 
 async function restoreWorkspaceLayout(): Promise<void> {
@@ -4463,7 +4525,27 @@ function openCloneRepositoryModal(returnToMenu = true, enterAfter = true): void 
 }
 
 function openWorkspaceBrowser(returnToMenu = true, enterAfter = false): void {
+  let selectedWorkspaceId: string | null = null;
   modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-browser-backdrop"><section class="modal-panel workspace-browser-modal"><div class="modal-heading"><div><span class="eyebrow">WORKSPACES / LOCAL</span><h2>Open workspace</h2></div><button class="modal-close" id="workspace-browser-close" type="button">${icons.close}</button></div><p class="modal-copy">Selecciona una carpeta real de este PC o usa un workspace guardado localmente.</p><div class="workspace-browser-picker"><button class="secondary-button" id="workspace-browser-pick" type="button">${icons.folder}<span>Elegir carpeta real</span></button><small>La carpeta se valida antes de abrirla y no se crean datos de muestra.</small></div><div class="workspace-list-modal">${workspaces.length ? workspaces.map((workspace) => `<button class="workspace-list-item ${workspace.id === activeWorkspaceId ? 'workspace-list-item-active' : ''}" data-workspace-id="${workspace.id}" type="button"><span class="panel-icon panel-icon-gray">${icons.folder}</span><span><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(workspace.path)}</small></span>${workspace.id === activeWorkspaceId ? '<i>ACTIVE</i>' : icons.chevron}</button>`).join('') : '<div class="workspace-list-empty">No hay workspaces guardados.</div>'}</div><div class="modal-actions"><button class="secondary-button" id="workspace-browser-new" type="button">${icons.add}<span>New workspace</span></button><button class="primary-button" id="workspace-browser-done" type="button">Done</button></div></section></div>`;
+  const workspaceActions = document.querySelector<HTMLElement>('.workspace-browser-modal .modal-actions');
+  const workspaceSelectionNote = document.createElement('p');
+  workspaceSelectionNote.className = 'workspace-selection-note';
+  workspaceSelectionNote.id = 'workspace-selection-note';
+  workspaceSelectionNote.setAttribute('role', 'status');
+  workspaceSelectionNote.setAttribute('aria-live', 'polite');
+  workspaceSelectionNote.textContent = workspaces.length
+    ? 'Selecciona el nombre del workspace que quieres abrir.'
+    : 'No hay workspaces guardados para seleccionar.';
+  document.querySelector<HTMLElement>('.workspace-browser-modal .workspace-list-modal')?.after(workspaceSelectionNote);
+
+  const openWorkspaceButton = document.createElement('button');
+  openWorkspaceButton.className = 'primary-button';
+  openWorkspaceButton.id = 'workspace-browser-open';
+  openWorkspaceButton.type = 'button';
+  openWorkspaceButton.disabled = true;
+  openWorkspaceButton.innerHTML = icons.folder + '<span>Open workspace</span>';
+  workspaceActions?.append(openWorkspaceButton);
+
   const close = (): void => { modalRoot.innerHTML = ''; if (returnToMenu) openMainMenu(); };
   document.querySelector<HTMLButtonElement>('#workspace-browser-close')!.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#workspace-browser-done')!.addEventListener('click', close);
@@ -4476,10 +4558,36 @@ function openWorkspaceBrowser(returnToMenu = true, enterAfter = false): void {
   cloneButton.innerHTML = icons.external + '<span>Clone repository</span>';
   document.querySelector<HTMLElement>('#workspace-browser-new')?.before(cloneButton);
   cloneButton.addEventListener('click', () => openCloneRepositoryModal(returnToMenu, enterAfter));
-  document.querySelectorAll<HTMLButtonElement>('[data-workspace-id]').forEach((button) => button.addEventListener('click', () => {
-    const workspace = getWorkspace(button.dataset.workspaceId ?? null);
-    if (workspace) void activateWorkspace(workspace, enterAfter || returnToMenu);
-  }));
+  const workspaceButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-id]'));
+  workspaceButtons.forEach((button) => {
+    button.setAttribute('aria-pressed', 'false');
+    button.addEventListener('click', () => {
+      const workspace = getWorkspace(button.dataset.workspaceId ?? null);
+      if (!workspace) return;
+      selectedWorkspaceId = workspace.id;
+      workspaceButtons.forEach((candidate) => {
+        const selected = candidate.dataset.workspaceId === selectedWorkspaceId;
+        candidate.classList.toggle('workspace-list-item-selected', selected);
+        candidate.setAttribute('aria-pressed', String(selected));
+      });
+      workspaceSelectionNote.classList.add('is-selected');
+      workspaceSelectionNote.textContent = `Seleccionado: ${workspace.name}. Pulsa Open workspace para continuar.`;
+      openWorkspaceButton.disabled = false;
+    });
+  });
+  openWorkspaceButton.addEventListener('click', () => {
+    const workspace = getWorkspace(selectedWorkspaceId);
+    if (!workspace) {
+      workspaceSelectionNote.classList.remove('is-selected');
+      workspaceSelectionNote.textContent = 'Selecciona el nombre del workspace que quieres abrir.';
+      openWorkspaceButton.disabled = true;
+      return;
+    }
+    openWorkspaceButton.disabled = true;
+    void activateWorkspace(workspace, enterAfter || returnToMenu).finally(() => {
+      if (document.body.contains(openWorkspaceButton)) openWorkspaceButton.disabled = false;
+    });
+  });
 }
 
 async function openSettingsModal(): Promise<void> {
@@ -4501,6 +4609,40 @@ async function openSettingsModal(): Promise<void> {
   const settingsAgentChoices = detectedAgents.filter((agent) => agent.installed).map((agent) => '<option value="' + escapeHtml(agent.executable) + '"' + (agent.executable === appSettings.defaultAgent ? ' selected' : '') + '>' + escapeHtml(agent.name + ' · ' + agent.executable) + '</option>').join('');
   const settingsEnvironmentText = escapeHtml(Object.entries(appSettings.environment).map(([key, value]) => key + '=' + value).join('\n'));
   modalRoot.innerHTML = '<div class="modal-backdrop" id="settings-backdrop"><section class="modal-panel settings-modal"><div class="modal-heading"><div><span class="eyebrow">COMESADE / SETTINGS</span><h2>Configuración local</h2></div><button class="modal-close" id="settings-close" type="button">' + icons.close + '</button></div><p class="modal-copy">Estas preferencias controlan procesos reales, terminales y worktrees de este equipo.</p><div class="settings-grid"><label class="setting-field"><span>Shell predeterminado</span><select class="field-input" id="settings-shell">' + settingsShellChoices + '</select><small>Se usará al abrir una nueva terminal.</small></label><label class="setting-field"><span>Agente predeterminado</span><select class="field-input" id="settings-agent"><option value=""' + (!appSettings.defaultAgent ? ' selected' : '') + '>Selección manual</option>' + settingsAgentChoices + '</select><small>Se prioriza en el lanzador, siempre ejecutando el CLI real.</small></label><label class="setting-field"><span>Fuente de terminal</span><input class="field-input" id="settings-font" value="' + escapeHtml(appSettings.terminalFont) + '"/><small>Usa una fuente instalada, por ejemplo Cascadia Mono.</small></label><label class="setting-field"><span>Tamaño de fuente</span><input class="field-input" id="settings-font-size" type="number" min="10" max="28" value="' + String(appSettings.terminalFontSize) + '"/><small>Entre 10 y 28 px.</small></label><label class="setting-field"><span>Cursor</span><select class="field-input" id="settings-cursor"><option value="bar"' + (appSettings.terminalCursor === 'bar' ? ' selected' : '') + '>Barra</option><option value="block"' + (appSettings.terminalCursor === 'block' ? ' selected' : '') + '>Bloque</option><option value="underline"' + (appSettings.terminalCursor === 'underline' ? ' selected' : '') + '>Subrayado</option></select><small>Se aplica también a terminales ya abiertas.</small></label><label class="setting-field"><span>Scrollback</span><input class="field-input" id="settings-scrollback" type="number" min="1000" max="100000" step="1000" value="' + String(appSettings.terminalScrollback) + '"/><small>Líneas conservadas por terminal real.</small></label><label class="setting-field settings-field-wide"><span>Directorio de worktrees</span><input class="field-input" id="settings-worktree" placeholder="Vacío = carpeta hermana del workspace" value="' + escapeHtml(appSettings.worktreeDirectory) + '"/><small>Se usa únicamente al elegir aislamiento Git.</small></label></div><label class="setting-field settings-field-wide"><span>Variables de entorno</span><small>Una por línea, formato NOMBRE=valor. Se inyectan al crear procesos nuevos.</small><textarea class="field-input settings-environment" id="settings-environment" spellcheck="false">' + settingsEnvironmentText + '</textarea></label><label class="setting-row settings-motion-row"><span><strong>Tema Chat/Gemini</strong><small>Transforma la interfaz a un modo conversacional (flotante).</small></span><input id="settings-gemini-theme" type="checkbox"' + (appSettings.geminiTheme ? ' checked' : '') + '/></label><label class="setting-row settings-motion-row"><span><strong>Animación ambiental</strong><small>Movimiento visual mínimo; no abre procesos ni consume VRAM.</small></span><input id="settings-motion" type="checkbox"' + (appSettings.backgroundAnimation ? ' checked' : '') + '/></label><div class="settings-info"><span class="panel-icon panel-icon-orange">' + icons.bolt + '</span><span><strong>Local-first</strong><small>PowerShell, archivos, Git y configuraciones permanecen en esta PC.</small></span></div><div class="modal-actions"><button class="secondary-button" id="settings-back" type="button">Volver al menú</button><button class="primary-button" id="settings-save" type="button">Guardar cambios</button></div></section></div>';
+  const settingsPanel = document.querySelector<HTMLElement>('.settings-modal');
+  const settingsTitle = settingsPanel?.querySelector<HTMLElement>('h2');
+  const settingsDescription = settingsPanel?.querySelector<HTMLElement>('.modal-copy');
+  settingsPanel?.setAttribute('role', 'dialog');
+  settingsPanel?.setAttribute('aria-modal', 'true');
+  settingsTitle?.setAttribute('id', 'settings-title');
+  settingsDescription?.setAttribute('id', 'settings-description');
+  settingsPanel?.setAttribute('aria-labelledby', 'settings-title');
+  settingsPanel?.setAttribute('aria-describedby', 'settings-description');
+
+  const settingFields = Array.from(document.querySelectorAll<HTMLElement>('.settings-modal .settings-grid > .setting-field'));
+  const insertSettingsSection = (anchor: Element | null | undefined, number: string, title: string, detail: string): void => {
+    if (!anchor?.parentElement) return;
+    const heading = document.createElement('div');
+    heading.className = 'settings-section-heading';
+    heading.innerHTML = '<span>' + number + '</span><strong>' + title + '</strong><small>' + detail + '</small>';
+    anchor.parentElement.insertBefore(heading, anchor);
+  };
+  insertSettingsSection(settingFields[0], '01', 'Ejecucion', 'Procesos y agentes predeterminados');
+  insertSettingsSection(settingFields[2], '02', 'Terminal y apariencia', 'Tipografia, cursor y buffer');
+  insertSettingsSection(settingFields[6], '03', 'Workspace e integraciones', 'Aislamiento y variables locales');
+  insertSettingsSection(
+    document.querySelector<HTMLElement>('.settings-modal > .settings-field-wide'),
+    '04',
+    'Variables de entorno',
+    'Se aplican a procesos nuevos',
+  );
+  insertSettingsSection(
+    document.querySelector<HTMLElement>('.settings-modal > .settings-motion-row'),
+    '05',
+    'Experiencia',
+    'Preferencias visuales de la superficie',
+  );
+
   const settingsInfo = document.querySelector<HTMLElement>('.settings-info small');
   if (settingsInfo) settingsInfo.textContent = 'El shell, las notas y las herramientas permanecen en esta PC.';
   const closeToMenu = (): void => openMainMenu();
@@ -4567,13 +4709,12 @@ function openMainMenu(): void {
   const workspaceCount = `${workspaces.length} saved workspace${workspaces.length === 1 ? '' : 's'}`;
   const runtimeState = connectionState.textContent?.trim() || 'LOCAL / STARTING';
   const currentWorkspace = workspace
-    ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="Enter ${escapeHtml(workspace.name)} workspace"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">CURRENT WORKSPACE</span><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(workspace.path)}</small></span><span class="main-menu-workspace-state"><i></i><span>SAVED LOCALLY</span></span>${icons.chevron}</button>`
+    ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="Select ${escapeHtml(workspace.name)} workspace to open it"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">CURRENT WORKSPACE</span><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(workspace.path)}</small></span><span class="main-menu-workspace-state"><i></i><span>SAVED LOCALLY</span></span>${icons.chevron}</button>`
     : `<div class="main-menu-current main-menu-current-empty"><span class="panel-icon panel-icon-gray">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">CURRENT WORKSPACE</span><strong>No workspace selected</strong><small>Create or open a real folder to continue.</small></span><span class="main-menu-workspace-state"><i class="is-empty"></i><span>NOT SELECTED</span></span></div>`;
   modalRoot.innerHTML = `<div class="modal-backdrop main-menu-backdrop" id="main-menu-backdrop" role="dialog" aria-modal="true" aria-labelledby="main-menu-title" aria-describedby="main-menu-copy"><section class="main-menu-panel"><div class="main-menu-topline"><div class="main-menu-brand"><div class="brand-mark">C</div><span><strong>ComesADE</strong><small>LOCAL DEVELOPMENT DESKTOP</small></span></div><div class="main-menu-local-state"><i></i><span>${escapeHtml(runtimeState)}</span></div></div><div class="main-menu-heading"><div><span class="eyebrow">COMESADE / MAIN MENU</span><h2 id="main-menu-title">Where do you want to <em>work?</em></h2><p class="main-menu-copy" id="main-menu-copy">Start with a real workspace. Your files, terminals, Git changes and tools stay connected to that folder.</p></div><div class="main-menu-hint"><kbd>LOCAL</kbd><span>Data stays on this PC</span></div></div><div class="main-menu-section-heading"><span>Workspace</span><small>${workspaceCount}</small></div>${currentWorkspace}<div class="main-menu-section-heading main-menu-actions-heading"><span>Start here</span><small>Choose one real action</small></div><div class="main-menu-actions"><button class="main-menu-action main-menu-action-primary" id="main-menu-open" type="button"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span><strong>Open workspace</strong><small>Choose a saved workspace or a real folder on this PC.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-create" type="button"><span class="panel-icon panel-icon-orange">${icons.add}</span><span><strong>Create workspace</strong><small>Use a name and an optional local folder.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-clone" type="button"><span class="panel-icon panel-icon-gray">${icons.external}</span><span><strong>Clone repository</strong><small>Run a real Git clone and open the result.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-settings" type="button"><span class="panel-icon panel-icon-blue">${icons.settings}</span><span><strong>Settings</strong><small>Configure shells, agents, fonts and local behavior.</small></span>${icons.chevron}</button></div><footer class="main-menu-footer"><span><i></i>WORKSPACE REQUIRED TO ENTER THE DESKTOP</span><small>${workspaceCount}</small></footer></section></div>`;
   syncMainMenuRuntimeState();
   document.querySelector<HTMLButtonElement>('#main-menu-current')?.addEventListener('click', () => {
-    const workspace = getWorkspace();
-    if (workspace) void activateWorkspace(workspace, true);
+    openWorkspaceBrowser(true, true);
   });
   document.querySelector<HTMLButtonElement>('#main-menu-open')?.addEventListener('click', () => openWorkspaceBrowser(true, true));
   document.querySelector<HTMLButtonElement>('#main-menu-create')?.addEventListener('click', () => openWorkspaceModal(true, true));
@@ -5169,7 +5310,14 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#workspace-lock-open')?.addEventListener('click', () => openWorkspaceBrowser(false, true));
   document.querySelector<HTMLButtonElement>('#workspace-lock-create')?.addEventListener('click', () => openWorkspaceModal(false, true));
   document.querySelector<HTMLButtonElement>('#open-command-palette')!.addEventListener('click', openCommandPalette);
-  document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view ?? 'overview')));
+  document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => button.addEventListener('click', () => {
+    setView(button.dataset.view ?? 'overview');
+    if (window.innerWidth <= 760 && !layoutState.sidebarCollapsed) {
+      layoutState.sidebarCollapsed = true;
+      applyLayout();
+      saveLayout();
+    }
+  }));
   asaOverview.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
     const restoreIndex = target.closest<HTMLElement>('[data-restore-session]')?.dataset.restoreSession;
@@ -5209,7 +5357,10 @@ function bindInteractions(): void {
     const filePath = fileTarget?.dataset.fileTab;
     if (filePath) void activateFileTab(filePath, fileTarget.dataset.fileRoot);
   });
-  window.addEventListener('resize', scheduleLayoutSync);
+  window.addEventListener('resize', () => {
+    syncResponsiveLayout();
+    scheduleLayoutSync();
+  });
   window.addEventListener('keydown', (event) => {
     if (mainMenuOpen) return;
     if (terminalOwnsKeyboard(event) && !(event.ctrlKey && event.key === 'Tab')) return;

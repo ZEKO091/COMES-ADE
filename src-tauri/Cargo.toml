@@ -1,6 +1,6 @@
 [package]
 name = "comesade"
-version = "0.1.17"
+version = "0.1.18"
 description = "ComesADE - sesiones y terminales nativas para vibe coding"
 authors = ["ComesADE"]
 edition = "2021"
@@ -24,3 +24,6 @@ notify = "6.1"
 regex = "1"
 libc = "0.2"
 rusqlite = { version = "0.40", features = ["bundled"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2.4.3"
