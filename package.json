@@ -13,7 +13,9 @@
     "release:desktop": "npm run tauri build && npm run publish:desktop",
     "release:desktop:signed": "npm run build:windows:signed && npm run publish:desktop:signed",
     "build:windows:signed": "powershell.exe -NoProfile -NonInteractive -File scripts/build-windows-signed.ps1",
+    "build:windows:updater": "powershell.exe -NoProfile -NonInteractive -File scripts/build-windows-updater.ps1",
     "build:macos:signed": "bash scripts/build-macos-signed.sh",
+    "build:macos:updater": "bash scripts/build-macos-updater.sh",
     "generate:updater-manifest": "node scripts/generate-updater-manifest.mjs"
   },
   "dependencies": {

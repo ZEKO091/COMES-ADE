@@ -122,6 +122,16 @@ Configura en GitHub Actions, como mínimo, estos secretos:
 El workflow importa las credenciales solo durante el job, borra los archivos
 temporales y limita los permisos del job a lectura del código.
 
+## Releases del updater sin firma de plataforma
+
+El workflow actual genera bundles de Windows y macOS sin Authenticode,
+Developer ID ni notarizacion. Esto permite probar las actualizaciones, pero
+los instaladores pueden mostrar advertencias de seguridad al abrirse.
+
+La firma Minisign del updater sigue siendo obligatoria. Configura en GitHub
+Actions `TAURI_SIGNING_PRIVATE_KEY`; la contraseña solo es necesaria si la
+clave no usa una contraseña vacia.
+
 ## Lista antes de publicar
 
 - El nombre legal coincide con el certificado y el publisher del bundle.
