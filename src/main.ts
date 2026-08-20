@@ -1088,9 +1088,11 @@ const API_HEALTH_ENDPOINT = `${API_BASE_URL}/health`;
 const API_READY_ENDPOINT = `${API_BASE_URL}/v1`;
 const API_MONITOR_INTERVAL_MS = 60_000;
 const API_MONITOR_TIMEOUT_MS = 6_000;
+const APP_UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 let localRuntimeState = 'LOCAL / STARTING';
 let apiConnectionState = 'API / CHECKING';
 let apiMonitorTimer: number | undefined;
+let appUpdateCheckTimer: number | undefined;
 let availableAppUpdate: AppUpdate | null = null;
 let appUpdateInstalling = false;
 let appUpdateCheckCompleted = false;
@@ -1465,10 +1467,10 @@ function openAppUpdateModal(): void {
   document.querySelector<HTMLButtonElement>('#app-update-install')?.addEventListener('click', () => { void installAppUpdate(); });
 }
 
-async function checkForAppUpdate(manual = false): Promise<void> {
+async function checkForAppUpdate(manual = false, force = false): Promise<void> {
   if (appUpdateCheckPromise) {
     await appUpdateCheckPromise;
-  } else if (!appUpdateCheckCompleted || manual) {
+  } else if (!appUpdateCheckCompleted || manual || force) {
     appUpdateCheckError = null;
     const request = (async () => {
       try {
@@ -1501,6 +1503,14 @@ async function checkForAppUpdate(manual = false): Promise<void> {
   } else {
     showToast('ComesADE ya esta actualizado.');
   }
+}
+
+function startAppUpdateChecker(): void {
+  if (appUpdateCheckTimer !== undefined) window.clearInterval(appUpdateCheckTimer);
+  appUpdateCheckTimer = window.setInterval(() => {
+    if (appUpdateInstalling) return;
+    void checkForAppUpdate(false, true);
+  }, APP_UPDATE_CHECK_INTERVAL_MS);
 }
 
 async function installAppUpdate(): Promise<void> {
@@ -5243,6 +5253,7 @@ async function finishStartup(): Promise<void> {
     appVersionLabel.textContent = 'COMESADE';
   }
   void checkForAppUpdate();
+  startAppUpdateChecker();
   if (eventsResult.status === 'rejected') {
     setLocalRuntimeState('LOCAL / EVENTS ERROR');
     showToast(`No se pudieron conectar los eventos locales: ${String(eventsResult.reason)}`, true);
