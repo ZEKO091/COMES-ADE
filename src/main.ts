@@ -1509,6 +1509,7 @@ async function checkForAppUpdate(manual = false, force = false): Promise<void> {
 
 function startAppUpdateChecker(): void {
   if (appUpdateCheckTimer !== undefined) window.clearInterval(appUpdateCheckTimer);
+  void checkForAppUpdate();
   appUpdateCheckTimer = window.setInterval(() => {
     if (appUpdateInstalling) return;
     void checkForAppUpdate(false, true);
@@ -5257,8 +5258,6 @@ async function finishStartup(): Promise<void> {
   } else {
     appVersionLabel.textContent = 'COMESADE';
   }
-  void checkForAppUpdate();
-  startAppUpdateChecker();
   if (eventsResult.status === 'rejected') {
     setLocalRuntimeState('LOCAL / EVENTS ERROR');
     showToast(`No se pudieron conectar los eventos locales: ${String(eventsResult.reason)}`, true);
@@ -5312,6 +5311,7 @@ async function initialize(): Promise<void> {
   setLocalRuntimeState('LOCAL / STARTING');
   setApiConnectionState('API / CHECKING');
   startApiMonitor();
+  startAppUpdateChecker();
 
   // El primer paint queda libre: el editor y las comprobaciones nativas no
   // pueden bloquear el menú ni aparentar que la ventana dejó de cargar.
