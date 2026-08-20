@@ -7,7 +7,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: signed-build-${{ github.ref }}
@@ -64,6 +64,40 @@ jobs:
           name: ComesADE-windows-${{ github.sha }}
           if-no-files-found: error
           path: src-tauri/target/release/bundle/**
+
+      - name: Package web dist and checksums
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = if ($tag.StartsWith('v')) { $tag.Substring(1) } else { $tag }
+          $outDir = Join-Path $env:RUNNER_TEMP 'release-assets'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          $distZip = Join-Path $outDir "ComesADE-web-dist-$tag.zip"
+          Compress-Archive -Path 'dist\*' -DestinationPath $distZip -Force
+
+          $checksumFile = Join-Path $outDir "SHA256SUMS-$tag.txt"
+          $targets = @(
+            "releases\ComesADE-Setup.exe",
+            "src-tauri\target\release\bundle\msi\ComesADE_${version}_x64_en-US.msi",
+            "src-tauri\target\release\bundle\nsis\ComesADE_${version}_x64-setup.exe",
+            $distZip
+          )
+
+          $lines = foreach ($target in $targets) {
+            if (-not (Test-Path $target)) { throw "Falta asset esperado: $target" }
+            $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($target))"
+          }
+          Set-Content -Path $checksumFile -Value $lines
+
+      - name: Upload release metadata assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComesADE-release-assets-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/release-assets/**
 
   macos:
     name: macOS signed and notarized bundle (${{ matrix.target }})
@@ -122,3 +156,24 @@ jobs:
           path: |
             src-tauri/target/release/bundle/**
             src-tauri/target/*/release/bundle/**
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - windows
+      - macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/**/*
