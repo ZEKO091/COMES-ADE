@@ -1,6 +1,6 @@
 [package]
 name = "comesade"
-version = "0.1.3"
+version = "0.1.4"
 description = "ComesADE - sesiones y terminales nativas para vibe coding"
 authors = ["ComesADE"]
 edition = "2021"
