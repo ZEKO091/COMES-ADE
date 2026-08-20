@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ComesADE
 
 ComesADE es un ADE de escritorio y una Agent Super App (ASA) para trabajar con proyectos locales, shells nativos, agentes CLI, Git, worktrees y previews reales en Windows y macOS.
@@ -77,3 +78,7 @@ Cada sesión abre el shell nativo seleccionado por el usuario dentro de un
 PTY visible. En Windows se detecta PowerShell/cmd y en macOS se detecta el
 shell configurado por el sistema. Las políticas de ejecución del sistema se
 respetan; la aplicación no desactiva Defender, SmartScreen ni PowerShell.
+=======
+# COMES-ADE
+A
+>>>>>>> origin/main
