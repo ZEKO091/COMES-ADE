@@ -621,6 +621,88 @@ select:focus-visible,
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width);
 }
 
+.statusbar {
+  display: flex;
+  min-width: 0;
+  height: var(--statusbar-height);
+  min-height: var(--statusbar-height);
+  flex: 0 0 var(--statusbar-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  background: var(--bg-statusbar);
+  color: var(--muted);
+}
+
+.statusbar-left-group,
+.statusbar-right-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.statusbar-left-group {
+  flex: 1 1 auto;
+}
+
+.statusbar-right-group {
+  flex: 0 0 auto;
+}
+
+.statusbar-pill {
+  display: inline-flex;
+  min-width: 0;
+  height: 22px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.statusbar-pill > span {
+  min-width: 0;
+}
+
+.statusbar-action {
+  height: 22px;
+  min-width: auto;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+@media (max-width: 760px) {
+  .statusbar {
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  .statusbar-left-group,
+  .statusbar-right-group {
+    gap: 5px;
+  }
+
+  .statusbar-pill {
+    padding: 0 6px;
+  }
+
+  .statusbar-action span,
+  .statusbar-right-group .statusbar-pill:nth-last-child(-n + 2) {
+    display: none;
+  }
+}
+
 .sidebar,
 .workspace-main,
 .workspace-inspector {
