@@ -13,6 +13,14 @@ npm install
 npm run tauri dev
 ```
 
+## GitHub requerido
+
+ComesADE requiere una cuenta de GitHub conectada antes de abrir el escritorio.
+La app usa el flujo web oficial de GitHub CLI (`gh auth login --web`) y la
+credencial queda en el almacen seguro del sistema, no en la app. Si GitHub CLI
+no esta instalado, instalalo desde <https://cli.github.com/> y vuelve a abrir
+ComesADE.
+
 ## Verificaciones
 
 ```powershell
@@ -49,7 +57,7 @@ npm run build:windows:signed
 Artefactos generados:
 
 - `src-tauri\target\release\comesade.exe`
-- `src-tauri\target\release\bundle\nsis\ComesADE_0.1.18_x64-setup.exe`
+- `src-tauri\target\release\bundle\nsis\ComesADE_0.1.19_x64-setup.exe`
 
 Para preparar una versión distribuible y firmada, consulta
 [`docs/RELEASING.md`](docs/RELEASING.md). Nunca guardes certificados,

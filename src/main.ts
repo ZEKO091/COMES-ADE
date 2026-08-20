@@ -12,6 +12,7 @@ import type { ILink, Terminal } from '@xterm/xterm';
 import { FitAddon as FitAddonClass } from '@xterm/addon-fit';
 import { Terminal as TerminalClass } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import comesadeLogoUrl from './assets/comesade-logo.png';
 import './styles.css';
 
 type SessionInfo = {
@@ -51,6 +52,7 @@ type SearchMatch = { path: string; line: number; text: string };
 type GitStatusEntry = { path: string; indexStatus: string; worktreeStatus: string; kind: string };
 type GitStatusResult = { branch: string; entries: GitStatusEntry[] };
 type GitAvailability = { available: boolean; path: string | null; version: string | null };
+type GithubAuthStatus = { connected: boolean; cliAvailable: boolean; login: string | null; host: string | null; error: string | null };
 type GitWorktree = { path: string; head: string; branch: string | null; detached: boolean };
 type GitBranch = { name: string; current: boolean; upstream: string | null };
 type GitFileVersions = { original: string; current: string };
@@ -115,6 +117,7 @@ const icons = {
   note: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>',
   browser: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2 2.2 3 4.8 3 8s-1 5.8-3 8c-2-2.2-3-4.8-3-8s1-5.8 3-8Z"/></svg>',
   more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>',
+  menu: '<svg viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="7" x2="19" y2="7"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="17" x2="19" y2="17"/></svg>',
   panel: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M10 5v14"/></svg>',
   panelRight: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M15 5v14"/></svg>',
   external: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6"/></svg>',
@@ -128,6 +131,7 @@ const icons = {
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   grid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
   git: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/><path d="M7 9v4a4 4 0 0 0 4 4h4M17 15v-4a4 4 0 0 0-4-4h-2"/></svg>',
+  github: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4 1.2-4-2-5.5-2.5M14.5 21v-3.2c0-1 .1-1.4-.5-2.1 2.2-.2 4.5-1.1 4.5-5a3.9 3.9 0 0 0-1-2.7 3.6 3.6 0 0 0-.1-2.7s-.9-.3-3 1a10.3 10.3 0 0 0-5.5 0c-2.1-1.3-3-1-3-1a3.6 3.6 0 0 0-.1 2.7 3.9 3.9 0 0 0-1 2.7c0 3.9 2.3 4.8 4.5 5-.6.6-.6 1.1-.5 2.1V21"/></svg>',
   branch: '<svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
   list: '<svg viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>',
@@ -347,7 +351,7 @@ function renderComesadeLegacyReference(): void {
     "    <aside class='sidebar' aria-label='Navegación principal'><div class='sidebar-identity'><span class='sidebar-kicker'>LOCAL DESKTOP</span><span class='product-badge'>ADE / ASA</span></div><div class='sidebar-section-label'>Producto</div><nav class='sidebar-nav' aria-label='Producto'><button class='sidebar-nav-item is-active' data-view='overview' type='button'><span class='nav-glyph'>▦</span><span><strong>ADE</strong><small>Workspace</small></span></button><button class='sidebar-nav-item' data-view='asa' type='button'><span class='nav-glyph'>✦</span><span><strong>ASA</strong><small>Agentes y sesiones</small></span></button><button class='sidebar-nav-item' data-view='terminals' type='button'><span class='nav-glyph'>›_</span><span><strong>Terminal</strong><small>Shells locales</small></span></button><button class='sidebar-nav-item' data-view='tools' type='button'><span class='nav-glyph'>◎</span><span><strong>Tools</strong><small>Browser y preview</small></span></button></nav>",
     "      <div class='sidebar-section-title'><span>Workspaces</span><button class='icon-button' id='sidebar-open-workspaces' type='button' title='Abrir workspace'>+</button></div><button class='active-workspace-card' id='active-workspace-card' type='button'><span class='workspace-card-icon'>□</span><span class='workspace-card-copy'><strong id='active-workspace-name'>Sin workspace</strong><small id='active-workspace-path'>Crea o abre una carpeta</small></span><span class='workspace-card-chevron'>›</span></button><div class='sidebar-project-empty' id='sidebar-project-empty' hidden><span>□</span><strong>Sin workspace</strong><small>Abre una carpeta local para empezar.</small></div>",
     "      <div class='sidebar-workspace-heading'><span id='sidebar-project-label'>Workspace</span><button class='icon-button' id='sidebar-filter-btn' type='button' title='Filtros: todas las sesiones'>≡</button></div><div class='session-list' id='session-list'></div><div class='sidebar-session-actions'><input class='sidebar-search-input' id='sidebar-search-input' type='search' placeholder='Filtrar sesiones' aria-label='Filtrar sesiones' /><button class='secondary-button sidebar-new-session' id='sidebar-new-session' type='button'>+<span>Nueva sesión</span></button></div>",
-    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.18</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
+    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>0.1.19</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
     "    </aside>",
     "    <main class='workspace-main view-overview'><header class='workspace-header'><div class='workspace-header-copy'><span class='eyebrow'>ADE / LOCAL WORKSPACE</span><h1 id='workspace-heading'>Sin workspace seleccionado</h1><p id='workspace-header-path'>Crea o abre un workspace para comenzar.</p></div><div class='workspace-header-actions'><button class='header-button' id='open-workspace-menu' type='button'>Workspace</button><button class='header-button' id='open-browser-menu' type='button'>Browser</button><button class='header-button header-button-primary' id='header-new-session' type='button'>+<span>Nueva sesión</span></button></div></header>",
     "      <div class='workspace-views-stack' id='workspace-views-stack'>",
@@ -361,6 +365,10 @@ function renderComesadeLegacyReference(): void {
     "  <footer class='statusbar'><div class='statusbar-left-group'><span class='statusbar-pill'><span class='status-dot'></span><span>LOCAL</span></span><span class='statusbar-pill' id='runtime-usage-metric'>PTY / READY</span></div><div class='statusbar-right-group'><button class='statusbar-action' id='refresh-workspace-btn' type='button' title='Actualizar sesiones, archivos y Git'>↻<span>Refresh</span></button><span class='statusbar-pill'><span id='memory-metric'>—</span></span><span class='statusbar-pill'>›_ <span id='active-terminal-count'>0</span></span></div></footer>",
     "</div><div id='modal-root'></div><div id='toast' class='toast' role='status' aria-live='polite'></div>"
   ].join('');
+  const legacyBrandMark = app.querySelector<HTMLElement>('.titlebar-brand-button .brand-mark');
+  if (legacyBrandMark) {
+    legacyBrandMark.innerHTML = `<img src="${comesadeLogoUrl}" alt="" aria-hidden="true" />`;
+  }
 }
 
 function renderComesadeSurface(): void {
@@ -369,9 +377,9 @@ function renderComesadeSurface(): void {
       <header class="titlebar">
         <div class="titlebar-left">
           <div class="titlebar-window-slot titlebar-window-slot-left" id="titlebar-window-slot-left"></div>
-          <button class="titlebar-btn titlebar-menu-btn" id="titlebar-layout" type="button" title="Ocultar la barra lateral" aria-expanded="true" aria-controls="app-body">☰</button>
+          <button class="titlebar-btn titlebar-menu-btn" id="titlebar-layout" type="button" title="Ocultar la barra lateral" aria-label="Ocultar la barra lateral" aria-expanded="true" aria-controls="app-body">${icons.menu}</button>
           <button class="titlebar-brand-button" id="titlebar-more" type="button" title="Cambiar workspace">
-            <span class="brand-mark">C</span>
+            <span class="brand-mark"><img src="${comesadeLogoUrl}" alt="" aria-hidden="true" /></span>
             <span class="brand-lockup">
               <strong>ComesADE</strong>
               <small>Local workspace</small>
@@ -398,6 +406,12 @@ function renderComesadeSurface(): void {
           <div class="sidebar-identity">
             <strong>Workspaces</strong>
             <small>Desktop local-first</small>
+          </div>
+
+          <div class="sidebar-github-card" id="github-account-card" role="status" aria-live="polite">
+            <span class="github-account-icon">${icons.github}</span>
+            <span class="github-account-copy"><strong id="github-account-label">GitHub</strong><small id="github-account-status">Comprobando conexiÃ³n...</small></span>
+            <span class="github-account-dot" id="github-account-dot"></span>
           </div>
 
           <nav class="sidebar-nav" aria-label="Vistas principales">
@@ -464,7 +478,7 @@ function renderComesadeSurface(): void {
             <div class="sidebar-footer-actions">
               <button class="icon-button sidebar-refresh-action" id="refresh-workspace-btn" type="button" title="Actualizar sesiones, archivos y Git" aria-label="Actualizar sesiones, archivos y Git">${icons.refresh}</button>
             </div>
-            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.18</span></div>
+            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">0.1.19</span></div>
           </div>
           <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
         </aside>
@@ -730,6 +744,27 @@ function renderComesadeSurface(): void {
           <span class="statusbar-pill">›_ <span id="active-terminal-count">0</span></span>
         </div>
       </footer>
+    </div>
+    <div class="github-auth-gate" id="github-auth-gate" role="dialog" aria-modal="true" aria-labelledby="github-auth-title" aria-describedby="github-auth-copy">
+      <section class="github-auth-panel">
+        <div class="github-auth-heading">
+          <span class="github-auth-mark">${icons.github}</span>
+          <div>
+            <span class="eyebrow">COMESADE / REQUIRED ACCESS</span>
+            <h1 id="github-auth-title">Conecta GitHub para continuar</h1>
+          </div>
+        </div>
+        <p class="github-auth-copy" id="github-auth-copy">ComesADE necesita una cuenta real de GitHub conectada antes de abrir el escritorio. Tu token permanece en el almacen seguro de GitHub CLI.</p>
+        <div class="github-auth-status" role="status" aria-live="polite">
+          <span class="github-auth-status-dot" id="github-auth-status-dot"></span>
+          <span><strong id="github-auth-status-title">Comprobando conexion</strong><small id="github-auth-status-detail">Verificando GitHub CLI...</small></span>
+        </div>
+        <div class="github-auth-actions">
+          <button class="primary-button" id="github-auth-connect" type="button">${icons.github}<span>Conect Github</span></button>
+          <button class="secondary-button" id="github-auth-check" type="button">Ya estoy conectado</button>
+        </div>
+        <small class="github-auth-note" id="github-auth-note">Se abrira el flujo web oficial de GitHub en tu navegador.</small>
+      </section>
     </div>
     <div id="modal-root"></div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -1092,6 +1127,17 @@ const activeSessionLabel = document.querySelector<HTMLElement>('#active-session-
 const appVersionLabel = document.querySelector<HTMLElement>('#app-version-label')!;
 const modalRoot = document.querySelector<HTMLDivElement>('#modal-root')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
+const githubAuthGate = document.querySelector<HTMLElement>('#github-auth-gate')!;
+const githubAuthConnectButton = document.querySelector<HTMLButtonElement>('#github-auth-connect')!;
+const githubAuthCheckButton = document.querySelector<HTMLButtonElement>('#github-auth-check')!;
+const githubAuthStatusDot = document.querySelector<HTMLElement>('#github-auth-status-dot')!;
+const githubAuthStatusTitle = document.querySelector<HTMLElement>('#github-auth-status-title')!;
+const githubAuthStatusDetail = document.querySelector<HTMLElement>('#github-auth-status-detail')!;
+const githubAuthNote = document.querySelector<HTMLElement>('#github-auth-note')!;
+const githubAccountCard = document.querySelector<HTMLElement>('#github-account-card')!;
+const githubAccountLabel = document.querySelector<HTMLElement>('#github-account-label')!;
+const githubAccountStatus = document.querySelector<HTMLElement>('#github-account-status')!;
+const githubAccountDot = document.querySelector<HTMLElement>('#github-account-dot')!;
 const currentAppWebview = getCurrentWebview();
 const API_BASE_URL = 'https://comesade-api.kingfrianfrian16.workers.dev';
 const API_HEALTH_ENDPOINT = `${API_BASE_URL}/health`;
@@ -1108,6 +1154,16 @@ let appUpdateInstalling = false;
 let appUpdateCheckCompleted = false;
 let appUpdateCheckError: unknown = null;
 let appUpdateCheckPromise: Promise<void> | null = null;
+let githubAuth: GithubAuthStatus = {
+  connected: false,
+  cliAvailable: true,
+  login: null,
+  host: null,
+  error: null,
+};
+let githubAuthBusy = false;
+let githubAuthCheckPromise: Promise<void> | null = null;
+let authorizedStartupPromise: Promise<void> | null = null;
 
 type ApiHealthPayload = {
   database?: string;
@@ -1127,6 +1183,104 @@ type ApiReadyPayload = {
   version?: string;
   workspaces?: string;
 };
+
+function renderGithubAuthState(): void {
+  const connected = githubAuth.connected;
+  const account = githubAuth.login ? `@${githubAuth.login}` : 'GitHub';
+  githubAuthGate.hidden = connected;
+  githubAuthGate.setAttribute('aria-hidden', String(connected));
+  githubAccountCard.classList.toggle('is-connected', connected);
+  githubAccountDot.classList.toggle('is-connected', connected);
+  githubAccountDot.classList.toggle('is-error', !connected && !githubAuthBusy);
+  githubAccountLabel.textContent = connected ? account : 'GitHub requerido';
+  githubAccountStatus.textContent = connected ? 'Cuenta conectada' : githubAuthBusy ? 'Esperando conexion' : 'Conecta para continuar';
+
+  githubAuthConnectButton.disabled = githubAuthBusy;
+  githubAuthCheckButton.disabled = githubAuthBusy;
+  githubAuthConnectButton.innerHTML = `${icons.github}<span>${githubAuthBusy ? 'Esperando GitHub...' : 'Conect Github'}</span>`;
+  githubAuthStatusDot.classList.toggle('is-connected', connected);
+  githubAuthStatusDot.classList.toggle('is-error', !connected && !githubAuthBusy);
+  githubAuthStatusDot.classList.toggle('is-pending', githubAuthBusy);
+
+  if (connected) {
+    githubAuthStatusTitle.textContent = 'GitHub conectado';
+    githubAuthStatusDetail.textContent = `Cuenta activa: ${account}`;
+    githubAuthNote.textContent = 'La sesion se administra con GitHub CLI y el almacen seguro del sistema.';
+    return;
+  }
+  if (githubAuthBusy) {
+    githubAuthStatusTitle.textContent = 'Completa la autorizacion';
+    githubAuthStatusDetail.textContent = 'Termina el flujo web de GitHub y vuelve a esta ventana.';
+    githubAuthNote.textContent = 'No cierres el navegador hasta que GitHub confirme la cuenta.';
+    return;
+  }
+  if (!githubAuth.cliAvailable) {
+    githubAuthStatusTitle.textContent = 'GitHub CLI no disponible';
+    githubAuthStatusDetail.textContent = githubAuth.error ?? 'Instala GitHub CLI y vuelve a intentarlo.';
+    githubAuthNote.textContent = 'Descarga GitHub CLI desde cli.github.com para continuar.';
+    return;
+  }
+  githubAuthStatusTitle.textContent = 'GitHub requerido';
+  githubAuthStatusDetail.textContent = githubAuth.error ?? 'No hay una cuenta activa en este equipo.';
+  githubAuthNote.textContent = 'Se abrira el flujo web oficial de GitHub en tu navegador.';
+}
+
+async function refreshGithubAuth(): Promise<GithubAuthStatus> {
+  if (githubAuthCheckPromise) {
+    await githubAuthCheckPromise;
+    return githubAuth;
+  }
+  githubAuthCheckPromise = (async () => {
+    try {
+      githubAuth = await invoke<GithubAuthStatus>('github_auth_status');
+    } catch (error) {
+      githubAuth = {
+        connected: false,
+        cliAvailable: false,
+        login: null,
+        host: null,
+        error: `No se pudo comprobar GitHub: ${String(error)}`,
+      };
+    } finally {
+      renderGithubAuthState();
+    }
+  })();
+  await githubAuthCheckPromise;
+  githubAuthCheckPromise = null;
+  return githubAuth;
+}
+
+async function connectGithubAccount(): Promise<void> {
+  if (githubAuthBusy) return;
+  githubAuthBusy = true;
+  githubAuth.error = null;
+  renderGithubAuthState();
+  try {
+    githubAuth = await invoke<GithubAuthStatus>('github_auth_login');
+    if (!githubAuth.connected) throw new Error(githubAuth.error ?? 'GitHub no quedo conectado.');
+    showToast(`GitHub conectado como @${githubAuth.login ?? 'usuario'}.`);
+    await finishAuthorizedStartup();
+  } catch (error) {
+    githubAuth = {
+      ...githubAuth,
+      connected: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    showToast(githubAuth.error ?? 'No se pudo conectar GitHub.', true);
+  } finally {
+    githubAuthBusy = false;
+    renderGithubAuthState();
+  }
+}
+
+async function checkGithubAccount(): Promise<void> {
+  const status = await refreshGithubAuth();
+  if (status.connected) {
+    await finishAuthorizedStartup();
+    return;
+  }
+  showToast(status.error ?? 'Conecta GitHub para continuar.', true);
+}
 
 function updateConnectionStateLabel(): void {
   connectionState.textContent = `${localRuntimeState} · ${apiConnectionState}`;
@@ -2492,7 +2646,9 @@ function applyLayout(): void {
   if (sidebarToggle) {
     const sidebarVisible = !layoutState.sidebarCollapsed;
     sidebarToggle.setAttribute('aria-expanded', String(sidebarVisible));
+    sidebarToggle.setAttribute('aria-label', sidebarVisible ? 'Ocultar la barra lateral' : 'Mostrar la barra lateral');
     sidebarToggle.title = sidebarVisible ? 'Ocultar la barra lateral' : 'Mostrar la barra lateral';
+    sidebarToggle.innerHTML = sidebarVisible ? icons.close : icons.menu;
   }
   workspaceMain?.classList.remove('view-overview', 'view-asa', 'view-terminals', 'view-tools');
   workspaceMain?.classList.add(`view-${layoutState.view}`);
@@ -4711,7 +4867,7 @@ function openMainMenu(): void {
   const currentWorkspace = workspace
     ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="Select ${escapeHtml(workspace.name)} workspace to open it"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">CURRENT WORKSPACE</span><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(workspace.path)}</small></span><span class="main-menu-workspace-state"><i></i><span>SAVED LOCALLY</span></span>${icons.chevron}</button>`
     : `<div class="main-menu-current main-menu-current-empty"><span class="panel-icon panel-icon-gray">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">CURRENT WORKSPACE</span><strong>No workspace selected</strong><small>Create or open a real folder to continue.</small></span><span class="main-menu-workspace-state"><i class="is-empty"></i><span>NOT SELECTED</span></span></div>`;
-  modalRoot.innerHTML = `<div class="modal-backdrop main-menu-backdrop" id="main-menu-backdrop" role="dialog" aria-modal="true" aria-labelledby="main-menu-title" aria-describedby="main-menu-copy"><section class="main-menu-panel"><div class="main-menu-topline"><div class="main-menu-brand"><div class="brand-mark">C</div><span><strong>ComesADE</strong><small>LOCAL DEVELOPMENT DESKTOP</small></span></div><div class="main-menu-local-state"><i></i><span>${escapeHtml(runtimeState)}</span></div></div><div class="main-menu-heading"><div><span class="eyebrow">COMESADE / MAIN MENU</span><h2 id="main-menu-title">Where do you want to <em>work?</em></h2><p class="main-menu-copy" id="main-menu-copy">Start with a real workspace. Your files, terminals, Git changes and tools stay connected to that folder.</p></div><div class="main-menu-hint"><kbd>LOCAL</kbd><span>Data stays on this PC</span></div></div><div class="main-menu-section-heading"><span>Workspace</span><small>${workspaceCount}</small></div>${currentWorkspace}<div class="main-menu-section-heading main-menu-actions-heading"><span>Start here</span><small>Choose one real action</small></div><div class="main-menu-actions"><button class="main-menu-action main-menu-action-primary" id="main-menu-open" type="button"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span><strong>Open workspace</strong><small>Choose a saved workspace or a real folder on this PC.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-create" type="button"><span class="panel-icon panel-icon-orange">${icons.add}</span><span><strong>Create workspace</strong><small>Use a name and an optional local folder.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-clone" type="button"><span class="panel-icon panel-icon-gray">${icons.external}</span><span><strong>Clone repository</strong><small>Run a real Git clone and open the result.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-settings" type="button"><span class="panel-icon panel-icon-blue">${icons.settings}</span><span><strong>Settings</strong><small>Configure shells, agents, fonts and local behavior.</small></span>${icons.chevron}</button></div><footer class="main-menu-footer"><span><i></i>WORKSPACE REQUIRED TO ENTER THE DESKTOP</span><small>${workspaceCount}</small></footer></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop main-menu-backdrop" id="main-menu-backdrop" role="dialog" aria-modal="true" aria-labelledby="main-menu-title" aria-describedby="main-menu-copy"><section class="main-menu-panel"><div class="main-menu-topline"><div class="main-menu-brand"><div class="brand-mark"><img src="${comesadeLogoUrl}" alt="" aria-hidden="true" /></div><span><strong>ComesADE</strong><small>LOCAL DEVELOPMENT DESKTOP</small></span></div><div class="main-menu-local-state"><i></i><span>${escapeHtml(runtimeState)}</span></div></div><div class="main-menu-heading"><div><span class="eyebrow">COMESADE / MAIN MENU</span><h2 id="main-menu-title">Where do you want to <em>work?</em></h2><p class="main-menu-copy" id="main-menu-copy">Start with a real workspace. Your files, terminals, Git changes and tools stay connected to that folder.</p></div><div class="main-menu-hint"><kbd>LOCAL</kbd><span>Data stays on this PC</span></div></div><div class="main-menu-section-heading"><span>Workspace</span><small>${workspaceCount}</small></div>${currentWorkspace}<div class="main-menu-section-heading main-menu-actions-heading"><span>Start here</span><small>Choose one real action</small></div><div class="main-menu-actions"><button class="main-menu-action main-menu-action-primary" id="main-menu-open" type="button"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span><strong>Open workspace</strong><small>Choose a saved workspace or a real folder on this PC.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-create" type="button"><span class="panel-icon panel-icon-orange">${icons.add}</span><span><strong>Create workspace</strong><small>Use a name and an optional local folder.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-clone" type="button"><span class="panel-icon panel-icon-gray">${icons.external}</span><span><strong>Clone repository</strong><small>Run a real Git clone and open the result.</small></span>${icons.chevron}</button><button class="main-menu-action" id="main-menu-settings" type="button"><span class="panel-icon panel-icon-blue">${icons.settings}</span><span><strong>Settings</strong><small>Configure shells, agents, fonts and local behavior.</small></span>${icons.chevron}</button></div><footer class="main-menu-footer"><span><i></i>WORKSPACE REQUIRED TO ENTER THE DESKTOP</span><small>${workspaceCount}</small></footer></section></div>`;
   syncMainMenuRuntimeState();
   document.querySelector<HTMLButtonElement>('#main-menu-current')?.addEventListener('click', () => {
     openWorkspaceBrowser(true, true);
@@ -5035,6 +5191,8 @@ function bindInteractions(): void {
   bindDeveloperDockResizer();
   bindTerminalReordering();
   bindTerminalResizing();
+  githubAuthConnectButton.addEventListener('click', () => { void connectGithubAccount(); });
+  githubAuthCheckButton.addEventListener('click', () => { void checkGithubAccount(); });
   /* Gemini shell handlers removed; ComesADE controls are bound below.
   const onClick = (selector: string, handler: () => void): void => {
     document.querySelector<HTMLElement>(selector)?.addEventListener('click', handler);
@@ -5408,6 +5566,44 @@ function refreshPersistedUi(): void {
   if (document.getElementById('main-menu-backdrop')) openMainMenu();
 }
 
+async function finishAuthorizedStartup(): Promise<void> {
+  if (authorizedStartupPromise) {
+    await authorizedStartupPromise;
+    return;
+  }
+  authorizedStartupPromise = (async () => {
+    if (getWorkspace() && !mainMenuOpen) {
+      try {
+        await startWorkspaceWatcher(getWorkspace()!.path);
+        await refreshWorkspacePanels();
+      } catch (error) {
+        showToast('No se pudo iniciar el watcher del workspace: ' + String(error), true);
+      }
+    }
+
+    try {
+      await syncRuntimeSessions();
+    } catch (error) {
+      showToast(`No se pudo consultar el runtime: ${String(error)}`, true);
+    }
+
+    try {
+      [detectedAgents, detectedShells] = await Promise.all([
+        invoke<AgentDefinition[]>('detect_agents'),
+        invoke<ShellDefinition[]>('detect_shells'),
+      ]);
+      agentsDetectionReady = true;
+      normalizeDefaultShell();
+      render();
+    } catch (error) {
+      showToast(`No se pudo detectar shells y agentes: ${String(error)}`, true);
+    }
+
+    setLocalRuntimeState('LOCAL / READY');
+  })();
+  await authorizedStartupPromise;
+}
+
 async function finishStartup(): Promise<void> {
   const hydration = hydrateNativePersistence();
   const platformRequest = invoke<RuntimePlatform>('platform_info');
@@ -5436,38 +5632,17 @@ async function finishStartup(): Promise<void> {
     // hydrateNativePersistence ya conserva el fallback de localStorage.
   }
 
-  if (getWorkspace() && !mainMenuOpen) {
-    try {
-      await startWorkspaceWatcher(getWorkspace()!.path);
-      await refreshWorkspacePanels();
-    } catch (error) {
-      showToast('No se pudo iniciar el watcher del workspace: ' + String(error), true);
-    }
+  const githubStatus = await refreshGithubAuth();
+  if (!githubStatus.connected) {
+    setLocalRuntimeState('LOCAL / GITHUB REQUIRED');
+    return;
   }
-
-  try {
-    await syncRuntimeSessions();
-  } catch (error) {
-    showToast(`No se pudo consultar el runtime: ${String(error)}`, true);
-  }
-
-  try {
-    [detectedAgents, detectedShells] = await Promise.all([
-      invoke<AgentDefinition[]>('detect_agents'),
-      invoke<ShellDefinition[]>('detect_shells'),
-    ]);
-    agentsDetectionReady = true;
-    normalizeDefaultShell();
-    render();
-  } catch (error) {
-    showToast(`No se pudo detectar shells y agentes: ${String(error)}`, true);
-  }
-
-  setLocalRuntimeState('LOCAL / READY');
+  await finishAuthorizedStartup();
 }
 
 async function initialize(): Promise<void> {
   bindInteractions();
+  renderGithubAuthState();
   loadSettings();
   loadWorkspaces();
   loadLayout();

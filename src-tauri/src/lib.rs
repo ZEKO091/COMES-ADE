@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 mod git_service;
+mod github_service;
 mod storage;
 mod workspace_fs;
 
@@ -1678,6 +1679,8 @@ pub fn run() {
             git_service::worktree_create,
             git_service::worktree_remove,
             git_service::clone_repository,
+            github_service::github_auth_status,
+            github_service::github_auth_login,
             storage::load_local_state,
             storage::save_local_state,
             watch_workspace,

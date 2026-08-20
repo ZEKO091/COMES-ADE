@@ -701,14 +701,23 @@ body.motion-disabled .titlebar-update svg {
 
 .brand-mark {
   display: grid;
+  flex: 0 0 auto;
   width: 24px;
   height: 24px;
   place-items: center;
+  overflow: hidden;
   border-radius: 8px;
-  background: none;
-  color: #161312;
-  font-size: 13px;
-  font-weight: 800;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
 }
 
 .brand-lockup,
@@ -3558,7 +3567,7 @@ textarea.field-input,
 }
 
 /* ========================================================================== 
-   Main menu refinement — clean BridgeMind-style desktop landing surface
+   Main menu refinement: clean main menu surface
    ========================================================================== */
 .main-menu-backdrop {
   padding: 20px;
@@ -3591,13 +3600,11 @@ textarea.field-input,
 .main-menu-brand .brand-mark {
   width: 34px;
   height: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  border: 0;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 800;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 5px rgba(0, 0, 0, 0.2);
+  background: transparent;
+  box-shadow: none;
 }
 
 .main-menu-brand strong {
@@ -4642,10 +4649,10 @@ textarea.field-input,
 }
 
 .main-menu-brand .brand-mark {
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  background: rgba(255, 255, 255, 0.03) !important;
+  border: 0 !important;
+  background: transparent !important;
   color: var(--text) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: none !important;
 }
 
 /* =========================================
@@ -5791,5 +5798,204 @@ textarea.field-input,
 
   .settings-modal .modal-actions > button {
     flex-basis: 100%;
+  }
+}
+
+.sidebar-github-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 7px;
+  align-items: center;
+  gap: 9px;
+  margin: 0 12px 12px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 4px 12px rgba(0, 0, 0, 0.14);
+}
+
+.sidebar-github-card.is-connected {
+  border-color: rgba(163, 190, 140, 0.22);
+}
+
+.github-account-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.github-account-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.github-account-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.github-account-copy strong,
+.github-account-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-account-copy strong {
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
+.github-account-copy small {
+  color: var(--muted-soft);
+  font-size: 9px;
+}
+
+.github-account-dot,
+.github-auth-status-dot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.github-account-dot.is-connected,
+.github-auth-status-dot.is-connected {
+  background: var(--green);
+}
+
+.github-auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 8, 12, 0.94);
+}
+
+.github-auth-gate[hidden] {
+  display: none;
+}
+
+.github-auth-panel {
+  width: min(560px, calc(100vw - 36px));
+  padding: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 28px 80px rgba(0, 0, 0, 0.62), 0 3px 10px rgba(0, 0, 0, 0.48);
+}
+
+.github-auth-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.github-auth-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 12px;
+  background: #050607;
+  color: var(--text-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 5px 14px rgba(0, 0, 0, 0.28);
+}
+
+.github-auth-mark svg {
+  width: 24px;
+  height: 24px;
+}
+
+.github-auth-panel h1 {
+  max-width: 380px;
+  margin: 6px 0 0;
+  color: var(--text-strong);
+  font-size: clamp(24px, 4vw, 34px);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.github-auth-copy {
+  margin: 24px 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.github-auth-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-height: 54px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.github-auth-status-dot {
+  flex: 0 0 7px;
+  margin-top: 4px;
+}
+
+.github-auth-status-dot.is-pending {
+  background: var(--gold);
+}
+
+.github-auth-status > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.github-auth-status strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.github-auth-status small,
+.github-auth-note {
+  color: var(--muted-soft);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.github-auth-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.github-auth-actions button {
+  min-height: 40px;
+}
+
+.github-auth-note {
+  display: block;
+  margin-top: 14px;
+}
+
+@media (max-width: 560px) {
+  .github-auth-panel {
+    padding: 24px 20px 20px;
+  }
+
+  .github-auth-actions {
+    grid-template-columns: 1fr;
   }
 }
