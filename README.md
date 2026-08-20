@@ -49,7 +49,7 @@ npm run build:windows:signed
 Artefactos generados:
 
 - `src-tauri\target\release\comesade.exe`
-- `src-tauri\target\release\bundle\nsis\ComesADE_0.1.2_x64-setup.exe`
+- `src-tauri\target\release\bundle\nsis\ComesADE_0.1.3_x64-setup.exe`
 
 Para preparar una versión distribuible y firmada, consulta
 [`docs/RELEASING.md`](docs/RELEASING.md). Nunca guardes certificados,
