@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "comesade"
-version = "0.1.4"
+version = "0.1.15"
 dependencies = [
  "libc",
  "notify",
