@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "comesade-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-17",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "comesade-db",
+      "database_id": "9c8b5847-87df-4174-9403-189cf50bd570",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

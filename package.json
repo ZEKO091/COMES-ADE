@@ -1,0 +1,29 @@
+{
+  "name": "comesade",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "publish:desktop": "powershell.exe -NoProfile -NonInteractive -File scripts/publish-desktop.ps1",
+    "publish:desktop:signed": "powershell.exe -NoProfile -NonInteractive -File scripts/publish-desktop.ps1 -RequireSignature",
+    "release:desktop": "npm run tauri build && npm run publish:desktop",
+    "release:desktop:signed": "npm run build:windows:signed && npm run publish:desktop:signed",
+    "build:windows:signed": "powershell.exe -NoProfile -NonInteractive -File scripts/build-windows-signed.ps1",
+    "build:macos:signed": "bash scripts/build-macos-signed.sh"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.3.0",
+    "monaco-editor": "^0.52.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^7.0.0"
+  }
+}

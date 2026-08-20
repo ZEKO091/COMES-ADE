@@ -1,0 +1,23 @@
+[package]
+name = "comesade"
+version = "0.1.1"
+description = "ComesADE - sesiones y terminales nativas para vibe coding"
+authors = ["ComesADE"]
+edition = "2021"
+
+[lib]
+name = "comesade_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+portable-pty = "0.8"
+rfd = { version = "0.16", default-features = false }
+notify = "6.1"
+regex = "1"
+libc = "0.2"
+rusqlite = { version = "0.40", features = ["bundled"] }

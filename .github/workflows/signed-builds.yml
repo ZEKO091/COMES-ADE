@@ -1,0 +1,124 @@
+name: Signed desktop builds
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows signed bundle
+    runs-on: windows-latest
+    env:
+      WINDOWS_SIGNING_CERT_THUMBPRINT: ${{ secrets.WINDOWS_SIGNING_CERT_THUMBPRINT }}
+      WINDOWS_SIGNING_TIMESTAMP_URL: https://timestamp.digicert.com
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Import Authenticode certificate
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)) { throw 'Falta WINDOWS_SIGNING_CERTIFICATE_BASE64.' }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)) { throw 'Falta WINDOWS_SIGNING_CERTIFICATE_PASSWORD.' }
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'comesade-signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
+            $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password $password
+            $expectedThumbprint = ($env:WINDOWS_SIGNING_CERT_THUMBPRINT -replace ' ', '').ToUpperInvariant()
+            if ($certificate.Thumbprint -ne $expectedThumbprint) { throw 'La huella del certificado importado no coincide con WINDOWS_SIGNING_CERT_THUMBPRINT.' }
+          } finally {
+            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and sign
+        run: npm run build:windows:signed
+
+      - name: Upload signed Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComesADE-windows-${{ github.sha }}
+          if-no-files-found: error
+          path: src-tauri/target/release/bundle/**
+
+  macos:
+    name: macOS signed and notarized bundle (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      TAURI_TARGET: ${{ matrix.target }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare App Store Connect key
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_KEY_BASE64"
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 -D > "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build, sign and notarize
+        run: npm run build:macos:signed
+
+      - name: Upload signed macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComesADE-macos-${{ matrix.target }}-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/**
+            src-tauri/target/*/release/bundle/**
