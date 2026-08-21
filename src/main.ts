@@ -381,7 +381,7 @@ function renderComesadeLegacyReference(): void {
     "    <aside class='sidebar' aria-label='Navegación principal'><div class='sidebar-identity'><span class='sidebar-kicker'>LOCAL DESKTOP</span><span class='product-badge'>ADE / ASA</span></div><div class='sidebar-section-label'>Producto</div><nav class='sidebar-nav' aria-label='Producto'><button class='sidebar-nav-item is-active' data-view='overview' type='button'><span class='nav-glyph'>▦</span><span><strong>ADE</strong><small>Workspace</small></span></button><button class='sidebar-nav-item' data-view='asa' type='button'><span class='nav-glyph'>✦</span><span><strong>ASA</strong><small>Agentes y sesiones</small></span></button><button class='sidebar-nav-item' data-view='terminals' type='button'><span class='nav-glyph'>›_</span><span><strong>Terminal</strong><small>Shells locales</small></span></button><button class='sidebar-nav-item' data-view='tools' type='button'><span class='nav-glyph'>◎</span><span><strong>Tools</strong><small>Browser y preview</small></span></button></nav>",
     "      <div class='sidebar-section-title'><span>Workspaces</span><button class='icon-button' id='sidebar-open-workspaces' type='button' title='Abrir workspace'>+</button></div><button class='active-workspace-card' id='active-workspace-card' type='button'><span class='workspace-card-icon'>□</span><span class='workspace-card-copy'><strong id='active-workspace-name'>Sin workspace</strong><small id='active-workspace-path'>Crea o abre una carpeta</small></span><span class='workspace-card-chevron'>›</span></button><div class='sidebar-project-empty' id='sidebar-project-empty' hidden><span>□</span><strong>Sin workspace</strong><small>Abre una carpeta local para empezar.</small></div>",
     "      <div class='sidebar-workspace-heading'><span id='sidebar-project-label'>Workspace</span><button class='icon-button' id='sidebar-filter-btn' type='button' title='Filtros: todas las sesiones'>≡</button></div><div class='session-list' id='session-list'></div><div class='sidebar-session-actions'><input class='sidebar-search-input' id='sidebar-search-input' type='search' placeholder='Filtrar sesiones' aria-label='Filtrar sesiones' /><button class='secondary-button sidebar-new-session' id='sidebar-new-session' type='button'>+<span>Nueva sesión</span></button></div>",
-    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>1.20.0</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
+    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>1.21.0</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
     "    </aside>",
     "    <main class='workspace-main view-overview'><header class='workspace-header'><div class='workspace-header-copy'><span class='eyebrow'>ADE / LOCAL WORKSPACE</span><h1 id='workspace-heading'>Sin workspace seleccionado</h1><p id='workspace-header-path'>Crea o abre un workspace para comenzar.</p></div><div class='workspace-header-actions'><button class='header-button' id='open-workspace-menu' type='button'>Workspace</button><button class='header-button' id='open-browser-menu' type='button'>Browser</button><button class='header-button header-button-primary' id='header-new-session' type='button'>+<span>Nueva sesión</span></button></div></header>",
     "      <div class='workspace-views-stack' id='workspace-views-stack'>",
@@ -508,7 +508,7 @@ function renderComesadeSurface(): void {
             <div class="sidebar-footer-actions">
               <button class="icon-button sidebar-refresh-action" id="refresh-workspace-btn" type="button" title="Actualizar sesiones, archivos y Git" aria-label="Actualizar sesiones, archivos y Git">${icons.refresh}</button>
             </div>
-            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">1.20.0</span></div>
+            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">1.21.0</span></div>
           </div>
           <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
         </aside>
@@ -789,6 +789,14 @@ function renderComesadeSurface(): void {
           <span class="github-auth-status-dot" id="github-auth-status-dot"></span>
           <span><strong id="github-auth-status-title">Comprobando conexion</strong><small id="github-auth-status-detail">Verificando la autorizacion de GitHub...</small></span>
         </div>
+        <div class="github-auth-device-code" id="github-auth-device-code" hidden aria-live="polite">
+          <div class="github-auth-device-code-copy">
+            <span class="eyebrow">GITHUB DEVICE CODE</span>
+            <span class="github-auth-device-code-label">Codigo que debes introducir en GitHub</span>
+            <code id="github-auth-device-code-value" aria-label="Codigo de autorizacion de GitHub"></code>
+          </div>
+        </div>
+        <small class="github-auth-device-warning" id="github-auth-device-warning" hidden></small>
         <div class="github-auth-actions">
           <button class="primary-button" id="github-auth-connect" type="button">${icons.github}<span>Conectar GitHub</span></button>
           <button class="secondary-button" id="github-auth-check" type="button">Ya estoy conectado</button>
@@ -1163,7 +1171,10 @@ const githubAuthCheckButton = document.querySelector<HTMLButtonElement>('#github
 const githubAuthStatusDot = document.querySelector<HTMLElement>('#github-auth-status-dot')!;
 const githubAuthStatusTitle = document.querySelector<HTMLElement>('#github-auth-status-title')!;
 const githubAuthStatusDetail = document.querySelector<HTMLElement>('#github-auth-status-detail')!;
+const githubAuthDeviceCodePanel = document.querySelector<HTMLElement>('#github-auth-device-code')!;
+const githubAuthDeviceCodeValue = document.querySelector<HTMLElement>('#github-auth-device-code-value')!;
 const githubAuthNote = document.querySelector<HTMLElement>('#github-auth-note')!;
+const githubAuthDeviceWarning = document.querySelector<HTMLElement>('#github-auth-device-warning')!;
 const githubAccountCard = document.querySelector<HTMLElement>('#github-account-card')!;
 const githubAccountLabel = document.querySelector<HTMLElement>('#github-account-label')!;
 const githubAccountStatus = document.querySelector<HTMLElement>('#github-account-status')!;
@@ -1173,6 +1184,7 @@ const API_BASE_URL = 'https://comesade-api.kingfrianfrian16.workers.dev';
 const API_HEALTH_ENDPOINT = `${API_BASE_URL}/health`;
 const API_READY_ENDPOINT = `${API_BASE_URL}/v1`;
 const GITHUB_CLIENT_ID = (import.meta.env.VITE_GITHUB_CLIENT_ID ?? '').trim();
+const GITHUB_DEVICE_CODE_WARNING = "Enter the code displayed in the app or on the device you're signing in to. Never use a code sent by someone else.";
 const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/ZEKO091/COMES-ADE/releases/latest';
 const API_MONITOR_INTERVAL_MS = 60_000;
 const API_MONITOR_TIMEOUT_MS = 6_000;
@@ -1242,6 +1254,11 @@ function renderGithubAuthState(): void {
   githubAuthStatusDot.classList.toggle('is-connected', connected);
   githubAuthStatusDot.classList.toggle('is-error', !connected && !githubAuthBusy);
   githubAuthStatusDot.classList.toggle('is-pending', githubAuthBusy);
+  const hasDeviceAuthorization = githubAuthBusy && githubDeviceAuthorization !== null;
+  githubAuthDeviceCodePanel.hidden = !hasDeviceAuthorization;
+  githubAuthDeviceCodeValue.textContent = githubDeviceAuthorization?.userCode ?? '';
+  githubAuthDeviceWarning.hidden = !hasDeviceAuthorization;
+  githubAuthDeviceWarning.textContent = GITHUB_DEVICE_CODE_WARNING;
 
   if (connected) {
     githubAuthStatusTitle.textContent = 'GitHub conectado';
@@ -1252,7 +1269,7 @@ function renderGithubAuthState(): void {
   if (githubAuthBusy) {
     githubAuthStatusTitle.textContent = 'Completa la autorizacion';
     githubAuthStatusDetail.textContent = githubDeviceAuthorization
-      ? `Codigo ${githubDeviceAuthorization.userCode}. Autoriza la app en GitHub.`
+      ? 'Escribe en GitHub el codigo que aparece en el bloque de abajo.'
       : 'Preparando una autorizacion segura con GitHub.';
     githubAuthNote.textContent = githubDeviceAuthorization
       ? `Se abrio ${githubDeviceAuthorization.verificationUri}. Si no se abrio, visita esa direccion e introduce el codigo.`
