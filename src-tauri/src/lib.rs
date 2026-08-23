@@ -1070,6 +1070,132 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
 }
 
+const GITHUB_UPDATE_DOWNLOAD_PREFIX: &str =
+    "https://github.com/zeko091/comes-ade/releases/download/";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateDownloadProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+fn is_allowed_github_update_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.contains('\r') || trimmed.contains('\n') {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with(GITHUB_UPDATE_DOWNLOAD_PREFIX)
+        && (lower.ends_with(".exe") || lower.ends_with(".msi"))
+}
+
+#[tauri::command]
+fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String> {
+    let trimmed = url.trim().to_string();
+    if !is_allowed_github_update_url(&trimmed) {
+        return Err(
+            "Solo se permiten descargas oficiales de GitHub Releases para ComesADE.".to_string(),
+        );
+    }
+
+    let extension = if trimmed.to_ascii_lowercase().ends_with(".msi") {
+        "msi"
+    } else {
+        "exe"
+    };
+    let target_path = std::env::temp_dir().join(format!("ComesADE-Update.{extension}"));
+    if target_path.exists() {
+        let _ = std::fs::remove_file(&target_path);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .user_agent("ComesADE/Desktop-Updater")
+        .build()
+        .map_err(|error| format!("No se pudo preparar la descarga: {error}"))?;
+
+    let mut response = client
+        .get(&trimmed)
+        .send()
+        .map_err(|error| format!("No se pudo descargar la actualización: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "GitHub respondió {} al descargar la actualización.",
+            response.status()
+        ));
+    }
+
+    let total = response.content_length();
+    let mut file = std::fs::File::create(&target_path)
+        .map_err(|error| format!("No se pudo crear el archivo temporal: {error}"))?;
+    let mut buffer = [0u8; 64 * 1024];
+    let mut downloaded: u64 = 0;
+    let mut last_emit = Instant::now()
+        .checked_sub(Duration::from_millis(200))
+        .unwrap_or_else(Instant::now);
+
+    loop {
+        let read = response
+            .read(&mut buffer)
+            .map_err(|error| format!("Error leyendo la actualización: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read])
+            .map_err(|error| format!("Error escribiendo la actualización: {error}"))?;
+        downloaded = downloaded.saturating_add(read as u64);
+        if last_emit.elapsed() >= Duration::from_millis(120) || total == Some(downloaded) {
+            let _ = app.emit(
+                "app-update-download-progress",
+                AppUpdateDownloadProgress { downloaded, total },
+            );
+            last_emit = Instant::now();
+        }
+    }
+    file.flush()
+        .map_err(|error| format!("No se pudo cerrar la descarga: {error}"))?;
+    drop(file);
+
+    let _ = app.emit(
+        "app-update-download-progress",
+        AppUpdateDownloadProgress {
+            downloaded,
+            total: total.or(Some(downloaded)),
+        },
+    );
+
+    #[cfg(windows)]
+    {
+        let mut command = if extension == "msi" {
+            let mut msiexec = Command::new("msiexec");
+            msiexec.args([
+                "/i",
+                &target_path.to_string_lossy(),
+                "/passive",
+                "/norestart",
+            ]);
+            msiexec
+        } else {
+            let mut setup = Command::new(&target_path);
+            // /P passive progress, /UPDATE update mode, /R relaunch app after install
+            setup.args(["/P", "/UPDATE", "/R"]);
+            setup
+        };
+        command
+            .spawn()
+            .map_err(|error| format!("No se pudo iniciar la instalación: {error}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = std::fs::remove_file(&target_path);
+        Err("La instalación automática de actualizaciones solo está disponible en Windows."
+            .to_string())
+    }
+}
+
 #[tauri::command]
 fn validate_workspace_path(path: String) -> Result<String, String> {
     let trimmed = path.trim().trim_matches('"');
@@ -1815,9 +1941,12 @@ pub fn run() {
             git_service::git_availability,
             git_service::install_git,
             git_service::repository_info,
+            git_service::git_github_remote,
+            git_service::git_set_github_origin,
             git_service::status,
             git_service::git_status,
             git_service::diff_stats,
+            git_service::path_diff_stats,
             git_service::branches,
             git_service::checkout_branch,
             git_service::create_branch,
@@ -1866,7 +1995,8 @@ pub fn run() {
             resize_session,
             close_session,
             reveal_path,
-            open_external_url
+            open_external_url,
+            download_and_install_update
         ])
         .setup(|app| {
             let port = design_mode::start(app.handle().clone());

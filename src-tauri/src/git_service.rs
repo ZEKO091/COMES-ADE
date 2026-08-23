@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -63,10 +63,19 @@ pub struct GitFileVersions {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitFileDiffStat {
+    pub path: String,
+    pub additions: u64,
+    pub deletions: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitDiffStats {
     pub files_changed: u64,
     pub additions: u64,
     pub deletions: u64,
+    pub files: Vec<GitFileDiffStat>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -526,6 +535,109 @@ pub fn repository_info(path: String) -> Result<GitRepositoryInfo, String> {
     }
 }
 
+fn parse_github_full_name(remote: &str) -> Option<String> {
+    let trimmed = remote.trim().trim_end_matches('/').trim_end_matches(".git");
+    let rest = trimmed
+        .strip_prefix("https://github.com/")
+        .or_else(|| trimmed.strip_prefix("http://github.com/"))
+        .or_else(|| trimmed.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| trimmed.strip_prefix("git@github.com:"));
+    let rest = rest?;
+    let parts: Vec<&str> = rest.split('/').filter(|part| !part.is_empty()).collect();
+    if parts.len() >= 2 {
+        Some(format!("{}/{}", parts[0], parts[1]))
+    } else {
+        None
+    }
+}
+
+/// Returns `owner/repo` for the GitHub `origin` remote, or `None` if the folder
+/// is not a git repo / has no GitHub origin.
+#[tauri::command]
+pub fn git_github_remote(path: String) -> Result<Option<String>, String> {
+    let candidate = canonical_directory(&path)?;
+    let toplevel = run_git(
+        &candidate,
+        &["rev-parse".to_string(), "--show-toplevel".to_string()],
+    );
+    let root = match toplevel {
+        Ok(output) if output.status.success() => git_path_from_output(&output_text(&output)?)?,
+        _ => return Ok(None),
+    };
+    let origin = run_git(&root, &["remote".to_string(), "get-url".to_string(), "origin".to_string()]);
+    match origin {
+        Ok(output) if output.status.success() => {
+            let url = output_text(&output)?;
+            Ok(parse_github_full_name(&url))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Sets (or adds) `origin` to `https://github.com/{owner}/{repo}.git`.
+/// Initializes a git repo in `path` when needed.
+#[tauri::command]
+pub fn git_set_github_origin(path: String, repository: String) -> Result<String, String> {
+    let repository = {
+        let trimmed = repository.trim();
+        let mut parts = trimmed.split('/');
+        let owner = parts.next().unwrap_or("").trim();
+        let name = parts.next().unwrap_or("").trim();
+        if owner.is_empty()
+            || name.is_empty()
+            || parts.next().is_some()
+            || owner.contains(' ')
+            || name.contains(' ')
+        {
+            return Err("El repositorio de GitHub debe tener el formato owner/repository.".to_string());
+        }
+        format!("{owner}/{name}")
+    };
+    let candidate = canonical_directory(&path)?;
+    let toplevel = run_git(
+        &candidate,
+        &["rev-parse".to_string(), "--show-toplevel".to_string()],
+    );
+    let root = match toplevel {
+        Ok(output) if output.status.success() => git_path_from_output(&output_text(&output)?)?,
+        _ => {
+            output_text(&run_git(&candidate, &["init".to_string()])?)?;
+            candidate.clone()
+        }
+    };
+    let url = format!("https://github.com/{repository}.git");
+    let existing = run_git(
+        &root,
+        &[
+            "remote".to_string(),
+            "get-url".to_string(),
+            "origin".to_string(),
+        ],
+    );
+    if existing.as_ref().map(|output| output.status.success()).unwrap_or(false) {
+        output_text(&run_git(
+            &root,
+            &[
+                "remote".to_string(),
+                "set-url".to_string(),
+                "origin".to_string(),
+                url,
+            ],
+        )?)?;
+    } else {
+        output_text(&run_git(
+            &root,
+            &[
+                "remote".to_string(),
+                "add".to_string(),
+                "origin".to_string(),
+                url,
+            ],
+        )?)?;
+    }
+    Ok(repository)
+}
+
 fn parse_status_entries(output: &[u8]) -> Vec<GitStatusEntry> {
     let mut records = output
         .split(|value| *value == 0)
@@ -594,12 +706,7 @@ pub fn status(path: String) -> Result<GitStatusResult, String> {
     git_status(path)
 }
 
-fn add_numstat(
-    output: &[u8],
-    paths: &mut HashSet<String>,
-    additions: &mut u64,
-    deletions: &mut u64,
-) {
+fn add_numstat(output: &[u8], files: &mut HashMap<String, (u64, u64)>) {
     for line in String::from_utf8_lossy(output).lines() {
         let mut fields = line.splitn(3, '\t');
         let Some(additions_field) = fields.next() else {
@@ -609,15 +716,32 @@ fn add_numstat(
             continue;
         };
         let Some(path) = fields.next() else { continue };
-        if !paths.insert(path.to_string()) {
+        if files.contains_key(path) {
             continue;
         }
-        if let Ok(value) = additions_field.parse::<u64>() {
-            *additions += value;
-        }
-        if let Ok(value) = deletions_field.parse::<u64>() {
-            *deletions += value;
-        }
+        let additions = additions_field.parse::<u64>().unwrap_or(0);
+        let deletions = deletions_field.parse::<u64>().unwrap_or(0);
+        files.insert(path.to_string(), (additions, deletions));
+    }
+}
+
+fn finalize_diff_stats(files: HashMap<String, (u64, u64)>) -> GitDiffStats {
+    let mut files: Vec<GitFileDiffStat> = files
+        .into_iter()
+        .map(|(path, (additions, deletions))| GitFileDiffStat {
+            path,
+            additions,
+            deletions,
+        })
+        .collect();
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    let additions = files.iter().map(|file| file.additions).sum();
+    let deletions = files.iter().map(|file| file.deletions).sum();
+    GitDiffStats {
+        files_changed: files.len() as u64,
+        additions,
+        deletions,
+        files,
     }
 }
 
@@ -625,9 +749,7 @@ fn add_numstat(
 pub fn diff_stats(path: String) -> Result<GitDiffStats, String> {
     let root = repository_root(&path)?;
     let status_result = status(root.to_string_lossy().into_owned())?;
-    let mut paths = HashSet::new();
-    let mut additions = 0;
-    let mut deletions = 0;
+    let mut files = HashMap::new();
 
     let head_diff = run_git(
         &root,
@@ -639,12 +761,7 @@ pub fn diff_stats(path: String) -> Result<GitDiffStats, String> {
         ],
     )?;
     if head_diff.status.success() {
-        add_numstat(
-            &head_diff.stdout,
-            &mut paths,
-            &mut additions,
-            &mut deletions,
-        );
+        add_numstat(&head_diff.stdout, &mut files);
     } else {
         for args in [
             vec![
@@ -660,7 +777,7 @@ pub fn diff_stats(path: String) -> Result<GitDiffStats, String> {
             ],
         ] {
             if let Ok(output) = run_git(&root, &args) {
-                add_numstat(&output.stdout, &mut paths, &mut additions, &mut deletions);
+                add_numstat(&output.stdout, &mut files);
             }
         }
     }
@@ -670,20 +787,131 @@ pub fn diff_stats(path: String) -> Result<GitDiffStats, String> {
         .iter()
         .filter(|entry| entry.index_status == "?" && entry.worktree_status == "?")
     {
-        if !paths.insert(entry.path.clone()) {
+        if files.contains_key(&entry.path) {
             continue;
         }
         let file = root.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR));
-        if let Ok(content) = fs::read_to_string(file) {
-            additions += content.lines().count() as u64;
+        let additions = fs::read_to_string(file)
+            .map(|content| content.lines().count() as u64)
+            .unwrap_or(0);
+        files.insert(entry.path.clone(), (additions, 0));
+    }
+
+    Ok(finalize_diff_stats(files))
+}
+
+fn numstat_pair_for_relative(root: &Path, relative: &str) -> (u64, u64) {
+    let mut files = HashMap::new();
+    for args in [
+        vec![
+            "diff".to_string(),
+            "--numstat".to_string(),
+            "HEAD".to_string(),
+            "--".to_string(),
+            relative.to_string(),
+        ],
+        vec![
+            "diff".to_string(),
+            "--numstat".to_string(),
+            "--".to_string(),
+            relative.to_string(),
+        ],
+        vec![
+            "diff".to_string(),
+            "--cached".to_string(),
+            "--numstat".to_string(),
+            "--".to_string(),
+            relative.to_string(),
+        ],
+    ] {
+        if let Ok(output) = run_git(root, &args) {
+            if output.status.success() {
+                add_numstat(&output.stdout, &mut files);
+            }
+        }
+        if let Some((additions, deletions)) = files.get(relative).copied() {
+            return (additions, deletions);
+        }
+        // git may report path with different separators or rename syntax
+        if let Some((_, stats)) = files.iter().find(|(path, _)| {
+            path.replace('\\', "/") == relative.replace('\\', "/")
+                || path.ends_with(relative)
+                || relative.ends_with(path.as_str())
+        }) {
+            return *stats;
         }
     }
 
-    Ok(GitDiffStats {
-        files_changed: paths.len() as u64,
-        additions,
-        deletions,
-    })
+    let status_result = status(root.to_string_lossy().into_owned()).ok();
+    let untracked = status_result
+        .as_ref()
+        .map(|result| {
+            result.entries.iter().any(|entry| {
+                (entry.path == relative || relative.ends_with(&entry.path) || entry.path.ends_with(relative))
+                    && entry.index_status == "?"
+                    && entry.worktree_status == "?"
+            })
+        })
+        .unwrap_or(false);
+    if untracked {
+        let file = root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let additions = fs::read_to_string(file)
+            .map(|content| content.lines().count() as u64)
+            .unwrap_or(0);
+        return (additions, 0);
+    }
+    (0, 0)
+}
+
+/// Real per-file +/- from Git numstat for workspace-relative paths (finds nested repo roots).
+#[tauri::command]
+pub fn path_diff_stats(workspace: String, relatives: Vec<String>) -> Result<Vec<GitFileDiffStat>, String> {
+    let workspace = PathBuf::from(workspace.trim());
+    let mut results = Vec::new();
+    for relative_raw in relatives {
+        let relative_raw = relative_raw.trim().replace('\\', "/");
+        if relative_raw.is_empty() {
+            continue;
+        }
+        let absolute = workspace.join(relative_raw.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let probe = if absolute.is_file() {
+            absolute
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| workspace.clone())
+        } else if absolute.is_dir() {
+            absolute.clone()
+        } else {
+            absolute
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| workspace.clone())
+        };
+        let mut root = match repository_root(probe.to_string_lossy().as_ref()) {
+            Ok(root) => root,
+            Err(_) => continue,
+        };
+        let abs_canon = crate::clean_windows_path(
+            absolute
+                .canonicalize()
+                .unwrap_or_else(|_| absolute.clone()),
+        );
+        root = crate::clean_windows_path(root.canonicalize().unwrap_or(root));
+        let Ok(rel_in_repo) = abs_canon.strip_prefix(&root) else {
+            continue;
+        };
+        let rel_in_repo = rel_in_repo.to_string_lossy().replace('\\', "/");
+        if rel_in_repo.is_empty() {
+            continue;
+        }
+        let (additions, deletions) = numstat_pair_for_relative(&root, &rel_in_repo);
+        results.push(GitFileDiffStat {
+            path: relative_raw,
+            additions,
+            deletions,
+        });
+    }
+    Ok(results)
 }
 
 #[tauri::command]
@@ -1201,6 +1429,10 @@ mod tests {
             assert_eq!(stats.files_changed, 1);
             assert_eq!(stats.additions, 1);
             assert_eq!(stats.deletions, 1);
+            assert_eq!(stats.files.len(), 1);
+            assert_eq!(stats.files[0].path, "README.md");
+            assert_eq!(stats.files[0].additions, 1);
+            assert_eq!(stats.files[0].deletions, 1);
             let versions = file_versions(
                 worktree_path.to_string_lossy().into_owned(),
                 "README.md".to_string(),

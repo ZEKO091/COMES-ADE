@@ -210,6 +210,17 @@ export function isAdminSpeechEmail(email: string): boolean {
   return email.trim().toLowerCase() === ADMIN_SPEECH_EMAIL;
 }
 
+export async function ensureSpeechSchema(db: D1Database): Promise<void> {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS speech_usage (
+      customer_id TEXT PRIMARY KEY NOT NULL,
+      period_key TEXT NOT NULL,
+      used_tokens INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+}
+
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -291,6 +302,7 @@ export async function speechQuotaForEmail(db: D1Database, email: string): Promis
   ok: true;
   quota: SpeechQuota;
 } | { ok: false; status: number; error: string; message: string }> {
+  await ensureSpeechSchema(db);
   if (isAdminSpeechEmail(email)) {
     return { ok: true, quota: adminQuota() };
   }
@@ -356,20 +368,34 @@ export async function consumeSpeechTokens(db: D1Database, email: string, tokens:
       quota: found.quota,
     };
   }
-  const nextUsed = found.quota.used + tokens;
   const now = new Date().toISOString();
-  await db.prepare(`
+  const write = await db.prepare(`
     INSERT INTO speech_usage (customer_id, period_key, used_tokens, updated_at)
     VALUES (?1, ?2, ?3, ?4)
     ON CONFLICT(customer_id) DO UPDATE SET
       period_key = excluded.period_key,
       used_tokens = CASE
-        WHEN speech_usage.period_key = excluded.period_key THEN excluded.used_tokens
+        WHEN speech_usage.period_key = excluded.period_key THEN speech_usage.used_tokens + excluded.used_tokens
         ELSE excluded.used_tokens
       END,
       updated_at = excluded.updated_at
-  `).bind(row.customer_id, periodKey, nextUsed, now).run();
-  return { ok: true, quota: quotaPayload(found.quota.plan, nextUsed, periodKey) };
+    WHERE speech_usage.period_key <> excluded.period_key
+       OR speech_usage.used_tokens + excluded.used_tokens <= ?5
+  `).bind(row.customer_id, periodKey, tokens, now, found.quota.limit ?? 0).run();
+
+  const latest = await speechQuotaForEmail(db, email);
+  if (Number(write.meta?.changes ?? 0) !== 1) {
+    if (!latest.ok) return latest;
+    return {
+      ok: false,
+      status: 402,
+      error: 'speech_quota_exceeded',
+      message: `El plan ${latest.quota.plan} permite ${latest.quota.limit} tokens de voz por pago. Quedan ${latest.quota.remaining}.`,
+      quota: latest.quota,
+    };
+  }
+  if (!latest.ok) return latest;
+  return { ok: true, quota: latest.quota };
 }
 
 async function readSpeechJson(request: Request): Promise<

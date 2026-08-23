@@ -328,6 +328,7 @@ fn anthropic_loop(
             return Err("Cancelado.".into());
         }
         let response = anthropic::chat(credentials, &messages, None, model.as_deref(), effort.as_deref())?;
+        emit_usage(app, ProviderId::Anthropic);
         let content = response
             .get("content")
             .and_then(Value::as_array)
@@ -381,6 +382,7 @@ fn gemini_loop(
             return Err("Cancelado.".into());
         }
         let response = gemini::chat(credentials, &contents, model.as_deref(), effort.as_deref())?;
+        emit_usage(app, ProviderId::Gemini);
         let candidate = response
             .get("candidates")
             .and_then(Value::as_array)

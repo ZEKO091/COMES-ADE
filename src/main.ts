@@ -18,17 +18,13 @@ import { STT_LANGUAGES } from './stt-languages';
 import { bindComposerSpeech, listMicrophones, setSelectedMicrophoneId } from './stt';
 import { signInWithBetterAuth, signOutBetterAuth } from './auth-client';
 import {
-  consumeLocalSpeech,
   countSpeechTokens,
   isUnlimitedSpeechQuota,
-  localSpeechQuota,
   parseSpeechQuotaResponse,
   type SpeechQuotaView,
 } from './speech-quota';
 import {
-  consumeLocalMessage,
   isUnlimitedMessageQuota,
-  localMessageQuota,
   parseMessageQuotaResponse,
   type MessageQuotaView,
 } from './message-quota';
@@ -48,6 +44,15 @@ import {
   t,
   type LanguagePreference,
 } from './i18n';
+import {
+  filterSlashCommands,
+  formatSlashInsertion,
+  parseSlashCommand,
+  slashCommandsForProvider,
+  slashMenuQuery,
+  type ParsedSlashCommand,
+  type SlashCommand,
+} from './agent-slash-commands';
 
 type SessionInfo = {
   id: string;
@@ -70,6 +75,8 @@ type WorkspaceInfo = {
   name: string;
   path: string;
   createdAt: string;
+  /** GitHub `owner/repo` linked to this workspace. Required for every workspace. */
+  repository?: string | null;
 };
 
 type TerminalOutput = { sessionId: string; data: string };
@@ -167,7 +174,8 @@ type GithubRepository = {
 type GitWorktree = { path: string; head: string; branch: string | null; detached: boolean };
 type GitBranch = { name: string; current: boolean; upstream: string | null };
 type GitFileVersions = { original: string; current: string };
-type GitDiffStats = { filesChanged: number; additions: number; deletions: number };
+type GitFileDiffStat = { path: string; additions: number; deletions: number };
+type GitDiffStats = { filesChanged: number; additions: number; deletions: number; files?: GitFileDiffStat[] };
 
 type TerminalInstance = {
   terminal: Terminal;
@@ -286,7 +294,7 @@ const icons = {
       <!-- Segmented top navigation -->
       <div class="titlebar-nav-segments">
         <button class="nav-segment-btn" id="segment-agent" type="button">Agent</button>
-        <button class="nav-segment-btn nav-segment-btn-active" id="segment-code" type="button">Code</button>
+        <button class="nav-segment-btn nav-segment-btn-active" id="segment-code" type="button">Chat</button>
         <button class="nav-segment-btn" id="segment-chat" type="button">Chat</button>
       </div>
 
@@ -502,11 +510,11 @@ function renderComesadeSurface(): void {
           </button>
         </div>
         <nav class="titlebar-pills" aria-label="Vistas" data-i18n-aria="chrome.views">
-          <button class="titlebar-pill is-active" data-view="overview" type="button" data-i18n="chrome.code">Code</button>
+          <button class="titlebar-pill is-active" data-view="overview" type="button" data-i18n="chrome.code">Chat</button>
           <button class="titlebar-pill" data-view="tools" type="button" data-i18n="chrome.browser">Browser</button>
           <button class="titlebar-pill" data-view="asa" type="button" data-i18n="chrome.agents">Agents</button>
           <button class="titlebar-pill" data-view="terminals" type="button" data-i18n="chrome.terminal">Terminal</button>
-          <button class="titlebar-pill" id="titlebar-layout-picker" type="button" title="Design Mode" data-i18n="chrome.design" data-i18n-title="chrome.design">Design</button>
+          <button class="titlebar-pill" id="titlebar-layout-picker" type="button" title="Split layout" data-i18n="chrome.split" data-i18n-title="chrome.splitHint" aria-haspopup="menu" aria-expanded="false">Split</button>
         </nav>
         <div class="titlebar-right-controls">
           <button class="titlebar-btn titlebar-update" id="titlebar-update" type="button" title="Hay una actualización disponible" data-i18n-title="chrome.update" hidden>
@@ -761,6 +769,18 @@ function renderComesadeSurface(): void {
                   <span data-i18n="chrome.listening">Escuchando</span>
                 </div>
                 <form class="native-agent-form" id="native-agent-form">
+                  <div class="composer-files-changed" id="composer-files-changed" hidden>
+                    <div class="composer-files-changed-header">
+                      <button class="composer-files-changed-summary" id="composer-files-changed-toggle" type="button" aria-expanded="false">
+                        <span class="composer-files-changed-chevron" aria-hidden="true">${icons.chevron}</span>
+                        <strong id="composer-files-changed-title">0 Files Changed</strong>
+                        <b class="stat-add" id="composer-files-changed-add">+0</b>
+                        <b class="stat-delete" id="composer-files-changed-del">−0</b>
+                      </button>
+                      <button class="composer-files-review-btn" id="composer-files-review-all" type="button" data-i18n="chrome.review">Review</button>
+                    </div>
+                    <ul class="composer-files-changed-list" id="composer-files-changed-list" hidden></ul>
+                  </div>
                   <div class="composer-git-bar" id="composer-git-bar" hidden>
                     <button class="composer-changes" id="composer-changes" type="button" hidden>
                       <span data-i18n="chrome.changes">Changes</span> <b class="stat-add" id="composer-git-add">+0</b> <b class="stat-delete" id="composer-git-del">-0</b>
@@ -784,7 +804,13 @@ function renderComesadeSurface(): void {
                       <button class="native-agent-model" id="native-agent-model" type="button" aria-haspopup="listbox" aria-expanded="false" title="Cambiar modelo" data-i18n-title="chrome.changeModel" hidden>
                         <span id="native-agent-model-label" data-i18n="chrome.model">Modelo</span>
                       </button>
-                      <button class="composer-usage" id="composer-usage" type="button" hidden></button>
+                      <button class="composer-usage" id="composer-usage" type="button" title="Context" aria-label="Context" data-i18n-title="chrome.contextUsed" data-i18n-aria="chrome.contextUsed">
+                        <svg class="composer-usage-ring" viewBox="0 0 36 36" aria-hidden="true">
+                          <circle class="composer-usage-track" cx="18" cy="18" r="14" fill="none" />
+                          <circle class="composer-usage-progress" id="composer-usage-progress" cx="18" cy="18" r="14" fill="none" pathLength="100" />
+                        </svg>
+                        <span class="composer-usage-pct" id="composer-usage-pct">0%</span>
+                      </button>
                       <button class="icon-button composer-mic" id="composer-mic" type="button" title="Dictado en ComesADE" data-i18n-title="chrome.mic" aria-pressed="false">${icons.mic}</button>
                       <button class="composer-stop" id="native-agent-cancel" type="button" hidden title="Stop" data-i18n-title="chrome.stop">${icons.stop}</button>
                       <button class="composer-send" id="native-agent-send" type="submit" title="Send" data-i18n-title="chrome.send" hidden>${icons.chevron}</button>
@@ -1073,8 +1099,8 @@ const filesBack = document.createElement('button');
 filesBack.id = 'files-back';
 filesBack.className = 'icon-button files-back-button';
 filesBack.type = 'button';
-filesBack.title = 'Volver a la carpeta padre';
-filesBack.setAttribute('aria-label', 'Volver a la carpeta padre');
+filesBack.title = t('chrome.backParentFolder');
+filesBack.setAttribute('aria-label', t('chrome.backParentFolder'));
 filesBack.innerHTML = icons.chevronLeft;
 document.querySelector<HTMLElement>('#inspector-view-sort')?.before(filesBack);
 const inspectorSearchInput = document.querySelector<HTMLInputElement>('#inspector-search-input')!;
@@ -1082,16 +1108,16 @@ const filesNewFile = document.createElement('button');
 filesNewFile.id = 'files-new-file';
 filesNewFile.className = 'icon-button';
 filesNewFile.type = 'button';
-filesNewFile.title = 'New file';
-filesNewFile.setAttribute('aria-label', 'New file');
+filesNewFile.title = t('chrome.newFile');
+filesNewFile.setAttribute('aria-label', t('chrome.newFile'));
 filesNewFile.innerHTML = icons.file;
 filesRefresh.before(filesNewFile);
 const filesNewFolder = document.createElement('button');
 filesNewFolder.id = 'files-new-folder';
 filesNewFolder.className = 'icon-button';
 filesNewFolder.type = 'button';
-filesNewFolder.title = 'New folder';
-filesNewFolder.setAttribute('aria-label', 'New folder');
+filesNewFolder.title = t('chrome.newFolder');
+filesNewFolder.setAttribute('aria-label', t('chrome.newFolder'));
 filesNewFolder.innerHTML = icons.folderPlus;
 filesRefresh.before(filesNewFolder);
 const editorFileName = document.querySelector<HTMLElement>('#editor-file-name')!;
@@ -1270,14 +1296,23 @@ function renderStartCanvas(): void {
 
 function syncDeveloperDockVisibility(): void {
   const workspaceOpen = Boolean(getWorkspace());
-  const emptyCode = workspaceOpen && !openFilePath && layoutState.view === 'overview' && layoutState.workLayout !== 'browser' && layoutState.workLayout !== 'design' && layoutState.workLayout !== 'dual';
+  const emptyCode = workspaceOpen && !openFilePath && layoutState.view === 'overview'
+    && layoutState.workLayout !== 'browser'
+    && layoutState.workLayout !== 'design'
+    && layoutState.workLayout !== 'dual'
+    && layoutState.workLayout !== 'cursor';
   const visible = workspaceOpen && !developerDockCollapsed && !emptyCode;
   developerDock.classList.toggle('developer-dock-open', visible);
   developerDock.classList.toggle('developer-dock-collapsed', developerDockCollapsed || emptyCode);
+  // Code vacío = chat a pantalla completa; sin cards de inicio encima del composer.
   const start = document.querySelector<HTMLElement>('#start-canvas');
-  if (start) start.hidden = !emptyCode;
-  if (emptyCode) renderStartCanvas();
+  if (start) start.hidden = true;
   document.querySelector('.workspace-main')?.classList.toggle('code-chat-open', emptyCode);
+  if (emptyCode && composerCollapsed) {
+    composerCollapsed = false;
+    layoutState.composerCollapsed = false;
+    syncComposerVisibility();
+  }
 }
 
 function syncComposerVisibility(): void {
@@ -1285,7 +1320,7 @@ function syncComposerVisibility(): void {
   document.querySelector<HTMLElement>('.app-shell')?.classList.toggle('composer-collapsed', !open);
   const toggle = document.querySelector<HTMLButtonElement>('#titlebar-composer-toggle');
   if (toggle) {
-    toggle.title = open ? 'Ocultar chat (Ctrl+L)' : 'Mostrar chat (Ctrl+L)';
+    toggle.title = open ? t('chrome.hideChatShortcut') : t('chrome.showChatShortcut');
     toggle.setAttribute('aria-expanded', String(open));
   }
   applyWorkLayout();
@@ -1589,9 +1624,8 @@ function renderDesignToolbar(): void {
   const toggle = document.querySelector<HTMLButtonElement>('#design-mode-toggle');
   const toolbar = document.querySelector<HTMLElement>('#design-toolbar');
   const picks = document.querySelector<HTMLElement>('#design-picks');
-  const pill = document.querySelector<HTMLButtonElement>('#titlebar-layout-picker');
   toggle?.classList.toggle('is-active', designModeEnabled);
-  pill?.classList.toggle('is-active', designModeEnabled);
+  syncLayoutPickerButton();
   if (toolbar) toolbar.hidden = !designModeEnabled;
   document.querySelectorAll<HTMLButtonElement>('[data-design-tool]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.designTool === designTool);
@@ -1913,11 +1947,21 @@ let agentThoughtTimer: number | null = null;
 let agentThoughtLine: HTMLDivElement | null = null;
 let agentPendingStep: HTMLDivElement | null = null;
 let agentTurnGitSnapshot: Record<string, string> = {};
+/** Archivos tocados en el turno actual del agente (para el panel al acabar). */
+let agentTurnEditedFiles = new Map<string, GitFileDiffStat>();
+/** Contenido al inicio del turno (o tras read_file) para diff real de líneas. */
+let agentTurnContentBaseline = new Map<string, string>();
+/** Numstat Git al inicio del turno (fallback). */
+let agentTurnDiffBaseline = new Map<string, GitFileDiffStat>();
 let providerUsage: Record<string, UsageSnapshot> = {};
 let selectedAgentChoices: Record<string, { model: string; effort: string }> = {};
 let closeModelPickerListeners: (() => void) | null = null;
+let modelPickerSlot: 'a' | 'b' = 'a';
+let dualChatLeftRatio = 0.5;
 let closeAccountPickerListeners: (() => void) | null = null;
 let closeSttLangPickerListeners: (() => void) | null = null;
+let closeSlashMenuListeners: (() => void) | null = null;
+let slashMenuState: { panel: 'a' | 'b'; selected: number; commands: SlashCommand[] } | null = null;
 
 type AgentModelOption = {
   id: string;
@@ -2110,7 +2154,8 @@ function setSelectedChoice(provider: string, model: string, effort: string, keep
   selectedAgentChoices[provider] = { model, effort };
   persistSelectedAgentModels();
   renderComposerModel();
-  if (keepPicker) openModelPicker();
+  renderComposerModelB();
+  if (keepPicker) openModelPicker(modelPickerSlot);
 }
 
 function loadSelectedAgentModels(): void {
@@ -2140,18 +2185,20 @@ function renderComposerModel(): void {
     nativeAgentModelLabel.textContent = 'Modelo';
     nativeAgentModel.title = 'Conecta una cuenta para elegir modelo';
     syncComposerPlaceholder();
+    renderComposerUsage();
     return;
   }
   nativeAgentModel.hidden = false;
   const variant = selected.option.efforts.length ? ` · ${effortLabel(selected.effort)}` : '';
   nativeAgentModelLabel.textContent = `${selected.option.label}${variant}`;
   nativeAgentModel.title = selected.option.efforts.length
-    ? `Modelo ${selected.option.label}, variante ${effortLabel(selected.effort)}. Se envía al proveedor.`
-    : `Modelo: ${selected.option.label}.`;
+    ? t('chrome.modelVariantHint', { model: selected.option.label, effort: effortLabel(selected.effort) })
+    : t('chrome.modelSimpleHint', { model: selected.option.label });
   nativeAgentModel.setAttribute('aria-label', nativeAgentModel.title);
   nativeAgentModel.dataset.model = selected.option.id;
   nativeAgentModel.dataset.effort = selected.option.efforts.length ? selected.effort : '';
   syncComposerPlaceholder();
+  renderComposerUsage();
   if (!selected.option.efforts.length) {
     nativeAgentEfforts.hidden = true;
     nativeAgentEfforts.innerHTML = '';
@@ -2179,9 +2226,73 @@ function renderComposerAccount(): void {
   button.title = account.accountLabel ? `${account.name} · ${account.accountLabel}` : account.name;
 }
 
+function renderComposerModelB(): void {
+  const provider = document.querySelector<HTMLSelectElement>('#native-agent-provider-b');
+  const modelBtn = document.querySelector<HTMLButtonElement>('#native-agent-model-b');
+  const modelLabel = document.querySelector('#native-agent-model-label-b');
+  const efforts = document.querySelector<HTMLElement>('#native-agent-efforts-b');
+  if (!provider || !modelBtn || !modelLabel || !efforts) return;
+  const account = providerAccounts.find((item) => item.id === provider.value && item.connected);
+  const selected = selectedModelChoice(account);
+  if (!selected) {
+    modelBtn.hidden = true;
+    efforts.hidden = true;
+    efforts.innerHTML = '';
+    modelLabel.textContent = t('chrome.model');
+    return;
+  }
+  modelBtn.hidden = false;
+  const variant = selected.option.efforts.length ? ` · ${effortLabel(selected.effort)}` : '';
+  modelLabel.textContent = `${selected.option.label}${variant}`;
+  modelBtn.title = selected.option.efforts.length
+    ? t('chrome.modelVariantHint', { model: selected.option.label, effort: effortLabel(selected.effort) })
+    : t('chrome.modelSimpleHint', { model: selected.option.label });
+  modelBtn.dataset.model = selected.option.id;
+  modelBtn.dataset.effort = selected.option.efforts.length ? selected.effort : '';
+  if (!selected.option.efforts.length) {
+    efforts.hidden = true;
+    efforts.innerHTML = '';
+    return;
+  }
+  efforts.hidden = false;
+  efforts.innerHTML = selected.option.efforts.map((effort) => {
+    const current = effort === selected.effort;
+    return `<button type="button" class="model-effort-chip${current ? ' is-selected' : ''}" data-effort="${escapeHtml(effort)}" title="${escapeHtml(effortLabel(effort))}" aria-pressed="${current ? 'true' : 'false'}">${escapeHtml(effortLabel(effort))}</button>`;
+  }).join('');
+}
+
+function renderComposerAccountB(): void {
+  const button = document.querySelector<HTMLButtonElement>('#composer-account-b');
+  const label = document.querySelector('#composer-account-label-b');
+  const provider = document.querySelector<HTMLSelectElement>('#native-agent-provider-b');
+  if (!button || !label || !provider) return;
+  const account = providerAccounts.find((item) => item.id === provider.value && item.connected);
+  button.classList.toggle('is-connected', Boolean(account));
+  if (!account) {
+    label.textContent = t('chrome.accountSelect');
+    button.title = t('chrome.connectAccountHint');
+    return;
+  }
+  label.textContent = account.name;
+  button.title = account.accountLabel ? `${account.name} · ${account.accountLabel}` : account.name;
+}
+
+function syncSecondComposerProviders(): void {
+  const source = document.querySelector<HTMLSelectElement>('#native-agent-provider');
+  const dest = document.querySelector<HTMLSelectElement>('#native-agent-provider-b');
+  if (!source || !dest) return;
+  const previous = dest.value;
+  dest.innerHTML = source.innerHTML;
+  if (previous && Array.from(dest.options).some((option) => option.value === previous)) dest.value = previous;
+  else if (source.value) dest.value = source.value;
+  renderComposerAccountB();
+  renderComposerModelB();
+}
+
 function closeAccountPicker(): void {
   document.querySelector<HTMLElement>('.account-picker-menu')?.remove();
   document.querySelector('#composer-account')?.setAttribute('aria-expanded', 'false');
+  document.querySelector('#composer-account-b')?.setAttribute('aria-expanded', 'false');
   closeAccountPickerListeners?.();
   closeAccountPickerListeners = null;
 }
@@ -2270,13 +2381,16 @@ function openSttLangPicker(): void {
   list?.querySelector<HTMLButtonElement>('.is-selected')?.scrollIntoView({ block: 'nearest' });
 }
 
-function openAccountPicker(): void {
-  const button = document.querySelector<HTMLButtonElement>('#composer-account');
-  if (!button) return;
+function openAccountPicker(slot: 'a' | 'b' = 'a'): void {
+  const suffix = slot === 'b' ? '-b' : '';
+  const button = document.querySelector<HTMLButtonElement>(`#composer-account${suffix}`);
+  const provider = document.querySelector<HTMLSelectElement>(`#native-agent-provider${suffix}`);
+  if (!button || !provider) return;
   const connected = providerAccounts.filter((account) => account.connected);
   closeModelPicker();
   closeAccountPicker();
   closeSttLangPicker();
+  closeSlashCommandMenu();
   if (!connected.length) {
     void openAccountsModal();
     return;
@@ -2286,7 +2400,7 @@ function openAccountPicker(): void {
   menu.setAttribute('role', 'listbox');
   menu.innerHTML = [
     ...connected.map((account) => {
-      const current = account.id === nativeAgentProvider.value;
+      const current = account.id === provider.value;
       const detail = account.accountLabel || account.authMode || 'Conectada';
       return `<button type="button" class="account-picker-item${current ? ' is-selected' : ''}" data-account-id="${escapeHtml(account.id)}" role="option" aria-selected="${current ? 'true' : 'false'}"><span><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(detail)}</small></span>${current ? '<em>ACTUAL</em>' : ''}</button>`;
     }),
@@ -2318,26 +2432,309 @@ function openAccountPicker(): void {
     }
     const id = target.dataset.accountId;
     if (!id) return;
-    nativeAgentProvider.value = id;
-    nativeAgentProvider.dispatchEvent(new Event('change'));
+    provider.value = id;
+    provider.dispatchEvent(new Event('change'));
     closeAccountPicker();
   });
 }
 
 function closeModelPicker(): void {
   document.querySelector<HTMLElement>('.model-picker-menu')?.remove();
-  nativeAgentModel.setAttribute('aria-expanded', 'false');
+  document.querySelector('#native-agent-model')?.setAttribute('aria-expanded', 'false');
+  document.querySelector('#native-agent-model-b')?.setAttribute('aria-expanded', 'false');
   closeModelPickerListeners?.();
   closeModelPickerListeners = null;
 }
 
-function openModelPicker(): void {
-  const account = providerAccounts.find((item) => item.id === nativeAgentProvider.value && item.connected);
+function closeSlashCommandMenu(): void {
+  document.querySelector<HTMLElement>('.slash-command-menu')?.remove();
+  closeSlashMenuListeners?.();
+  closeSlashMenuListeners = null;
+  slashMenuState = null;
+}
+
+function composerInputForPanel(panel: 'a' | 'b'): HTMLTextAreaElement | null {
+  return panel === 'b'
+    ? document.querySelector<HTMLTextAreaElement>('#native-agent-input-b')
+    : nativeAgentInput;
+}
+
+function providerForPanel(panel: 'a' | 'b'): string {
+  if (panel === 'b') {
+    return document.querySelector<HTMLSelectElement>('#native-agent-provider-b')?.value || nativeAgentProvider.value;
+  }
+  return nativeAgentProvider.value;
+}
+
+function positionSlashMenu(menu: HTMLElement, input: HTMLTextAreaElement): void {
+  const rect = input.getBoundingClientRect();
+  const maxHeight = Math.max(160, Math.min(360, rect.top - 24));
+  menu.style.maxHeight = `${maxHeight}px`;
+  const width = Math.min(320, window.innerWidth - 24);
+  menu.style.width = `${width}px`;
+  const height = Math.min(menu.scrollHeight, maxHeight);
+  menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+  menu.style.top = `${Math.max(12, rect.top - height - 8)}px`;
+}
+
+function renderSlashCommandMenuItems(menu: HTMLElement): void {
+  if (!slashMenuState) return;
+  const { commands, selected } = slashMenuState;
+  menu.innerHTML = commands.map((command, index) => {
+    const badge = command.mode === 'local' ? t('slash.badgeLocal') : t('slash.badgeAgent');
+    const current = index === selected;
+    return `<button type="button" class="slash-command-item${current ? ' is-selected' : ''}" data-slash-index="${index}" role="option" aria-selected="${current ? 'true' : 'false'}"><span><code>/${escapeHtml(command.name)}</code><small>${escapeHtml(t(command.hintKey))}</small></span><em>${escapeHtml(badge)}</em></button>`;
+  }).join('');
+  menu.querySelector<HTMLElement>('.is-selected')?.scrollIntoView({ block: 'nearest' });
+}
+
+function openSlashCommandMenu(panel: 'a' | 'b', commands: SlashCommand[], selected = 0): void {
+  const input = composerInputForPanel(panel);
+  if (!input || !commands.length) {
+    closeSlashCommandMenu();
+    return;
+  }
+  closeModelPicker();
+  closeAccountPicker();
+  closeSttLangPicker();
+  closeSlashCommandMenu();
+  slashMenuState = { panel, selected: Math.max(0, Math.min(selected, commands.length - 1)), commands };
+  const menu = document.createElement('div');
+  menu.className = 'file-context-menu slash-command-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.setAttribute('aria-label', t('slash.helpTitle'));
+  document.body.appendChild(menu);
+  renderSlashCommandMenuItems(menu);
+  positionSlashMenu(menu, input);
+  const outside = (event: PointerEvent): void => {
+    if (menu.contains(event.target as Node) || input.contains(event.target as Node)) return;
+    closeSlashCommandMenu();
+  };
+  document.addEventListener('pointerdown', outside);
+  closeSlashMenuListeners = () => {
+    document.removeEventListener('pointerdown', outside);
+  };
+  menu.addEventListener('click', (event) => {
+    const index = Number((event.target as HTMLElement).closest<HTMLElement>('[data-slash-index]')?.dataset.slashIndex);
+    if (!Number.isFinite(index)) return;
+    void acceptSlashCommand(index);
+  });
+}
+
+function refreshSlashCommandMenu(panel: 'a' | 'b'): void {
+  const input = composerInputForPanel(panel);
+  if (!input) {
+    closeSlashCommandMenu();
+    return;
+  }
+  const query = slashMenuQuery(input.value);
+  if (query === null) {
+    closeSlashCommandMenu();
+    return;
+  }
+  const commands = filterSlashCommands(slashCommandsForProvider(providerForPanel(panel)), query);
+  if (!commands.length) {
+    closeSlashCommandMenu();
+    return;
+  }
+  if (slashMenuState?.panel === panel && document.querySelector('.slash-command-menu')) {
+    const prevName = slashMenuState.commands[slashMenuState.selected]?.name;
+    const selected = Math.max(0, prevName ? commands.findIndex((item) => item.name === prevName) : 0);
+    slashMenuState = { panel, commands, selected: selected >= 0 ? selected : 0 };
+    const menu = document.querySelector<HTMLElement>('.slash-command-menu');
+    if (menu) {
+      renderSlashCommandMenuItems(menu);
+      positionSlashMenu(menu, input);
+    }
+    return;
+  }
+  openSlashCommandMenu(panel, commands, 0);
+}
+
+async function acceptSlashCommand(index?: number): Promise<void> {
+  if (!slashMenuState) return;
+  const { panel, commands } = slashMenuState;
+  const command = commands[index ?? slashMenuState.selected];
+  const input = composerInputForPanel(panel);
+  if (!command || !input) {
+    closeSlashCommandMenu();
+    return;
+  }
+  input.value = formatSlashInsertion(command);
+  if (panel === 'a') resizeNativeAgentInput();
+  closeSlashCommandMenu();
+  if (command.autoSend) {
+    if (panel === 'b') await sendNativeAgentMessageB();
+    else await sendNativeAgentMessage();
+    return;
+  }
+  input.focus();
+  const cursor = input.value.length;
+  input.setSelectionRange(cursor, cursor);
+}
+
+function moveSlashMenuSelection(delta: number): void {
+  if (!slashMenuState) return;
+  const count = slashMenuState.commands.length;
+  if (!count) return;
+  slashMenuState.selected = (slashMenuState.selected + delta + count) % count;
+  const menu = document.querySelector<HTMLElement>('.slash-command-menu');
+  if (menu) renderSlashCommandMenuItems(menu);
+}
+
+function handleComposerSlashKeydown(event: KeyboardEvent, panel: 'a' | 'b'): boolean {
+  if (!slashMenuState || slashMenuState.panel !== panel || !document.querySelector('.slash-command-menu')) {
+    return false;
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    moveSlashMenuSelection(1);
+    return true;
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    moveSlashMenuSelection(-1);
+    return true;
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSlashCommandMenu();
+    return true;
+  }
+  if (event.key === 'Tab') {
+    event.preventDefault();
+    void acceptSlashCommand();
+    return true;
+  }
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    void acceptSlashCommand();
+    return true;
+  }
+  return false;
+}
+
+function compactAgentMessages(messages: AgentChatMessage[]): AgentChatMessage[] {
+  const turns: AgentChatMessage[][] = [];
+  let current: AgentChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role === 'user' && current.length) {
+      turns.push(current);
+      current = [message];
+    } else {
+      current.push(message);
+    }
+  }
+  if (current.length) turns.push(current);
+  const kept = turns.slice(-2).flat();
+  return [{ role: 'system', content: t('slash.compactNote') }, ...kept];
+}
+
+function rebuildNativeAgentLog(panel: 'a' | 'b', messages: AgentChatMessage[]): void {
+  if (panel === 'b') {
+    const log = document.querySelector<HTMLElement>('#native-agent-log-b');
+    log?.replaceChildren();
+    for (const message of messages) {
+      if (message.role === 'system') appendNativeAgentLineB('assistant', message.content);
+      else appendNativeAgentLineB(message.role === 'user' ? 'user' : 'assistant', message.content);
+    }
+    return;
+  }
+  nativeAgentLog.replaceChildren();
+  nativeAgentStreamPre = null;
+  for (const message of messages) {
+    if (message.role === 'system') appendNativeAgentLine('assistant', message.content);
+    else appendNativeAgentLine(message.role === 'user' ? 'user' : 'assistant', message.content, undefined, message.images);
+  }
+}
+
+async function runLocalSlashCommand(parsed: ParsedSlashCommand, panel: 'a' | 'b'): Promise<void> {
+  const provider = providerForPanel(panel);
+  const append = (kind: string, text: string): void => {
+    if (panel === 'b') appendNativeAgentLineB(kind, text);
+    else appendNativeAgentLine(kind, text);
+  };
+
+  switch (parsed.name) {
+    case 'help': {
+      const lines = slashCommandsForProvider(provider).map((command) => {
+        const badge = command.mode === 'local' ? t('slash.badgeLocal') : t('slash.badgeAgent');
+        return `/${command.name}  (${badge}) — ${t(command.hintKey)}`;
+      });
+      append('assistant', `${t('slash.helpTitle')}\n\n${lines.join('\n')}`);
+      return;
+    }
+    case 'clear': {
+      if (panel === 'b') {
+        nativeAgentMessagesB = [];
+        nativeAgentStreamPreB = null;
+        document.querySelector('#native-agent-log-b')?.replaceChildren();
+        document.querySelector('#native-agent-panel-b')?.classList.remove('has-thread');
+      } else {
+        nativeAgentMessages = [];
+        nativeAgentStreamPre = null;
+        nativeAgentLog.replaceChildren();
+        document.querySelector('#native-agent-panel')?.classList.remove('has-thread');
+        document.querySelector<HTMLElement>('#agent-chat-hint')?.removeAttribute('hidden');
+        syncComposerPlaceholder();
+      }
+      append('assistant', t('slash.cleared'));
+      return;
+    }
+    case 'account': {
+      openAccountPicker();
+      return;
+    }
+    case 'model': {
+      if (!parsed.args) {
+        openModelPicker();
+        return;
+      }
+      const account = providerAccounts.find((item) => item.id === provider && item.connected);
+      const models = modelsForProvider(account);
+      const match = models.find((model) => model.id === parsed.args || model.label.toLowerCase() === parsed.args.toLowerCase());
+      if (!account || !match) {
+        append('error', t('slash.modelUnknown', { model: parsed.args }));
+        return;
+      }
+      setSelectedChoice(account.id, match.id, match.defaultEffort || match.efforts[0] || 'medium');
+      append('assistant', t('slash.modelSet', { model: match.label }));
+      return;
+    }
+    case 'compact': {
+      if (panel === 'b') {
+        nativeAgentMessagesB = compactAgentMessages(nativeAgentMessagesB);
+        rebuildNativeAgentLog('b', nativeAgentMessagesB);
+      } else {
+        nativeAgentMessages = compactAgentMessages(nativeAgentMessages);
+        rebuildNativeAgentLog('a', nativeAgentMessages);
+      }
+      return;
+    }
+    default:
+      append('error', t('slash.modelUnknown', { model: parsed.name }));
+  }
+}
+
+async function tryHandleLocalSlashCommand(text: string, panel: 'a' | 'b'): Promise<boolean> {
+  const parsed = parseSlashCommand(text, providerForPanel(panel));
+  if (!parsed || parsed.mode !== 'local') return false;
+  await runLocalSlashCommand(parsed, panel);
+  return true;
+}
+
+function openModelPicker(slot: 'a' | 'b' = 'a'): void {
+  modelPickerSlot = slot;
+  const suffix = slot === 'b' ? '-b' : '';
+  const providerEl = document.querySelector<HTMLSelectElement>(`#native-agent-provider${suffix}`) ?? nativeAgentProvider;
+  const modelBtn = document.querySelector<HTMLButtonElement>(`#native-agent-model${suffix}`) ?? nativeAgentModel;
+  const account = providerAccounts.find((item) => item.id === providerEl.value && item.connected);
   const models = modelsForProvider(account);
   const selected = selectedModelChoice(account);
   if (!account || !models.length || !selected) return;
   closeAccountPicker();
   closeSttLangPicker();
+  closeSlashCommandMenu();
   closeModelPicker();
   const menu = document.createElement('div');
   menu.className = 'file-context-menu model-picker-menu';
@@ -2353,7 +2750,7 @@ function openModelPicker(): void {
     return `<div class="model-picker-group${currentModel ? ' is-selected' : ''}"><button type="button" class="model-picker-name${currentModel ? ' is-selected' : ''}" data-model-id="${escapeHtml(model.id)}" data-select-model="1" role="option" aria-selected="${currentModel ? 'true' : 'false'}"><span><strong>${escapeHtml(model.label)}</strong><small>${escapeHtml(model.hint)}${currentModel && model.efforts.length ? ` · ${effortLabel(selected.effort)}` : ''}</small></span>${currentModel ? '<em>ACTUAL</em>' : ''}</button>${effortRow}</div>`;
   }).join('');
   document.body.appendChild(menu);
-  const rect = nativeAgentModel.getBoundingClientRect();
+  const rect = modelBtn.getBoundingClientRect();
   const maxHeight = Math.max(200, Math.min(360, rect.top - 24));
   menu.style.maxHeight = `${maxHeight}px`;
   const width = Math.min(320, window.innerWidth - 24);
@@ -2361,9 +2758,9 @@ function openModelPicker(): void {
   const height = Math.min(menu.scrollHeight, maxHeight);
   menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
   menu.style.top = `${Math.max(12, rect.top - height - 8)}px`;
-  nativeAgentModel.setAttribute('aria-expanded', 'true');
+  modelBtn.setAttribute('aria-expanded', 'true');
   const outside = (event: PointerEvent): void => {
-    if (menu.contains(event.target as Node) || nativeAgentModel.contains(event.target as Node)) return;
+    if (menu.contains(event.target as Node) || modelBtn.contains(event.target as Node)) return;
     closeModelPicker();
   };
   const onKey = (event: KeyboardEvent): void => {
@@ -2415,21 +2812,101 @@ function usageWindowLabel(window: UsageWindow): string {
   return window.label;
 }
 
+/** Porcentaje real del plan: el que publica el proveedor. Sin inventar cifras. */
+function primaryUsagePercent(snapshot: UsageSnapshot | undefined): number | null {
+  if (!snapshot?.windows.length) return null;
+  let best: number | null = null;
+  for (const window of snapshot.windows) {
+    if (typeof window.usedPercent !== 'number' || !Number.isFinite(window.usedPercent)) continue;
+    const value = Math.min(100, Math.max(0, window.usedPercent));
+    if (best === null || value > best) best = value;
+  }
+  return best === null ? null : Math.round(best);
+}
+
+/** Ventana de contexto del modelo (tokens), como Claude 200k / 1M. */
+function contextWindowForModel(modelId: string | null | undefined): number {
+  const id = (modelId ?? '').toLowerCase();
+  if (!id) return 200_000;
+  if (id.includes('1m') || id.includes('1000k') || id.includes('million')) return 1_000_000;
+  if (id.includes('moonshot-v1-128k') || id.includes('128k')) return 128_000;
+  if (id.includes('moonshot-v1-32k') || id.includes('32k')) return 32_000;
+  if (id.includes('256k')) return 256_000;
+  if (id.includes('qwen-long') || id.includes('gemini-2.5') || id.includes('gemini-3') || id.includes('gpt-4.1')) return 1_000_000;
+  if (id.includes('grok-4') || id.includes('grok4')) return 256_000;
+  if (id.includes('grok-3') || id.includes('grok-2')) return 128_000;
+  if (id.includes('claude-opus-4-6') || id.includes('claude-sonnet-4-6') || id.includes('claude-opus-4.6') || id.includes('claude-sonnet-4.6')) return 1_000_000;
+  if (id.includes('claude')) return 200_000;
+  if (id.includes('gpt-5') || id.includes('o3') || id.includes('o4')) return 400_000;
+  if (id.includes('gpt-4o') || id.includes('deepseek') || id.includes('glm') || id.includes('kimi') || id.includes('qwen')) return 128_000;
+  if (id.includes('gemini')) return 1_000_000;
+  return 200_000;
+}
+
+function formatTokenWindow(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const millions = tokens / 1_000_000;
+    return Number.isInteger(millions) ? `${millions}M` : `${millions.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    const thousands = tokens / 1_000;
+    return Number.isInteger(thousands) ? `${thousands}k` : `${thousands.toFixed(1)}k`;
+  }
+  return String(Math.max(0, Math.round(tokens)));
+}
+
+/** Estimación local de tokens del hilo (≈ chars/4), más el borrador del compositor. */
+function estimateConversationTokens(): number {
+  let chars = 0;
+  for (const message of nativeAgentMessages) {
+    chars += message.content?.length ?? 0;
+    chars += (message.images?.length ?? 0) * 1_200;
+  }
+  chars += nativeAgentInput?.value?.length ?? 0;
+  return Math.max(0, Math.ceil(chars / 4));
+}
+
 function renderComposerUsage(): void {
   const button = document.querySelector<HTMLButtonElement>('#composer-usage');
-  if (!button) return;
-  const snapshot = providerUsage[nativeAgentProvider.value];
-  if (!snapshot || !snapshot.windows.length) {
-    button.hidden = true;
-    return;
-  }
+  const pctLabel = document.querySelector<HTMLElement>('#composer-usage-pct');
+  const progress = document.querySelector<SVGCircleElement>('#composer-usage-progress');
+  if (!button || !pctLabel || !progress) return;
+
+  const account = providerAccounts.find((item) => item.id === nativeAgentProvider.value && item.connected)
+    ?? providerAccounts.find((item) => item.connected);
+  const choice = selectedModelChoice(account);
+  const windowTokens = contextWindowForModel(choice?.option.id ?? nativeAgentModel.dataset.model);
+  const usedTokens = estimateConversationTokens();
+  const percent = windowTokens > 0 ? Math.min(100, Math.round((usedTokens / windowTokens) * 100)) : 0;
+  const usedLabel = formatTokenWindow(usedTokens);
+  const windowLabel = formatTokenWindow(windowTokens);
+  const modelLabel = choice?.option.label ?? '';
+
+  const snapshot = account ? providerUsage[account.id] : undefined;
+  const planPercent = primaryUsagePercent(snapshot);
+  const reset = snapshot?.windows.map((window) => formatResetIn(window.resetsAt)).find(Boolean) ?? null;
+  const planLine = planPercent !== null
+    ? (reset
+      ? t('chrome.contextUsedPlanReset', { percent: planPercent, plan: snapshot!.windows.map(usageWindowLabel).join(' · '), when: reset })
+      : t('chrome.contextUsedPlan', { percent: planPercent, plan: snapshot!.windows.map(usageWindowLabel).join(' · ') }))
+    : '';
+
   button.hidden = false;
-  button.textContent = snapshot.windows.map(usageWindowLabel).join(' · ');
-  button.classList.toggle('is-exhausted', snapshot.exhausted);
-  const reset = snapshot.windows.map((window) => formatResetIn(window.resetsAt)).find(Boolean);
-  button.title = reset
-    ? `Consumo de tu plan de ${snapshot.providerName}. Se renueva ${reset}.`
-    : `Consumo de tu plan de ${snapshot.providerName}.`;
+  button.classList.toggle('is-empty', usedTokens < 1);
+  button.classList.toggle('is-exhausted', percent >= 100 || Boolean(snapshot?.exhausted));
+  button.classList.toggle('is-high', percent >= 75 && percent < 90);
+  button.classList.toggle('is-critical', percent >= 90);
+
+  pctLabel.textContent = `${percent}%`;
+  progress.style.strokeDasharray = `${percent} 100`;
+
+  const contextTitle = usedTokens < 1
+    ? t('composer.contextEmpty', { window: windowLabel })
+    : modelLabel
+      ? t('chrome.contextUsedDetailModel', { percent, used: usedLabel, window: windowLabel, model: modelLabel })
+      : t('chrome.contextUsedDetail', { percent, used: usedLabel, window: windowLabel });
+  button.title = planLine ? `${contextTitle}\n\n${planLine}` : contextTitle;
+  button.setAttribute('aria-label', t('chrome.contextUsedPct', { percent }));
 }
 
 /// Cuando el plan se agota, avisar con el tiempo de reset y proponer otra
@@ -2638,10 +3115,6 @@ function extractLastPaymentAt(data: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function speechPeriodKey(): string {
-  return comesSession?.lastPaymentAt?.trim() || 'unpaid';
-}
-
 function renderSpeechQuota(): void {
   const chip = document.querySelector<HTMLElement>('#composer-speech-quota');
   const mic = document.querySelector<HTMLButtonElement>('#composer-mic');
@@ -2650,22 +3123,31 @@ function renderSpeechQuota(): void {
   const unlimited = isUnlimitedSpeechQuota(speechQuota, comesSession?.email);
   if (unlimited) {
     chip.hidden = false;
-    chip.textContent = 'Voz ∞';
-    chip.title = 'Plan ADMIN: dictado en la nube de ComesADE ilimitado.';
+    chip.textContent = t('chrome.voiceInfinite');
+    chip.title = t('chrome.voiceAdminHint');
     if (mic) mic.disabled = false;
     if (tts) tts.disabled = false;
     return;
   }
-  if (!speechQuota || (speechQuota.limit ?? 0) <= 0) {
+  if (!speechQuota) {
     chip.hidden = !comesSession?.token;
-    chip.textContent = comesSession?.token ? 'Voz 0' : 'Voz';
+    chip.textContent = comesSession?.token ? t('chrome.voiceDash') : t('chrome.voiceLabel');
+    chip.title = t('toast.voiceVerifyFail');
+    if (mic) mic.disabled = true;
+    if (tts) tts.disabled = true;
+    return;
+  }
+  if ((speechQuota.limit ?? 0) <= 0) {
+    chip.hidden = false;
+    chip.textContent = t('chrome.voiceZero');
+    chip.title = t('toast.voicePlanRequired');
     if (mic) mic.disabled = true;
     if (tts) tts.disabled = true;
     return;
   }
   chip.hidden = false;
-  chip.textContent = `Voz ${speechQuota.remaining}/${speechQuota.limit}`;
-  chip.title = `Dictado en la nube de ComesADE. 1 palabra = 1 token. Se reinicia al pagar (${speechQuota.plan}).`;
+  chip.textContent = t('chrome.voiceUsage', { remaining: Number(speechQuota.remaining ?? 0), limit: Number(speechQuota.limit ?? 0) });
+  chip.title = t('chrome.voiceUsageHint', { plan: String(speechQuota.plan ?? '') });
   const blocked = (speechQuota.remaining ?? 0) < 1;
   if (mic) mic.disabled = blocked;
   if (tts) tts.disabled = blocked;
@@ -2673,25 +3155,16 @@ function renderSpeechQuota(): void {
 
 async function refreshSpeechQuota(): Promise<void> {
   const email = comesSession?.email?.trim() ?? '';
-  if (!email || !comesSession?.subscriptionActive) {
-    speechQuota = email
-      ? localSpeechQuota(email, comesSession?.plan ?? null, false, speechPeriodKey())
-      : null;
+  if (!email || !comesSession?.token) {
+    speechQuota = null;
     renderSpeechQuota();
     return;
   }
   try {
     const result = await comesApi('GET', '/v1/speech/quota', { token: comesSession.token });
-    const remote = result.ok ? parseSpeechQuotaResponse(result.data) : null;
-    if (remote) {
-      speechQuota = remote;
-    } else if (result.status === 402 || (result.status === 404 && result.data && typeof result.data === 'object' && (result.data as Record<string, unknown>).error === 'speech_no_subscription')) {
-      speechQuota = localSpeechQuota(email, comesSession.plan, false, speechPeriodKey());
-    } else {
-      speechQuota = localSpeechQuota(email, comesSession.plan, comesSession.subscriptionActive, speechPeriodKey());
-    }
+    speechQuota = result.ok ? parseSpeechQuotaResponse(result.data) : null;
   } catch {
-    speechQuota = localSpeechQuota(email, comesSession.plan, comesSession.subscriptionActive, speechPeriodKey());
+    speechQuota = null;
   }
   renderSpeechQuota();
 }
@@ -2702,40 +3175,39 @@ function renderMessageQuota(): void {
   const unlimited = isUnlimitedMessageQuota(messageQuota, comesSession?.email);
   if (unlimited) {
     chip.hidden = false;
-    chip.textContent = 'Msgs ∞';
-    chip.title = 'Plan ADMIN: mensajes al agente ilimitados.';
+    chip.textContent = t('chrome.msgsInfinite');
+    chip.title = t('chrome.msgsAdminHint');
     return;
   }
-  if (!messageQuota || (messageQuota.limit ?? 0) <= 0) {
+  if (!messageQuota) {
     chip.hidden = !comesSession?.token;
-    chip.textContent = comesSession?.token ? 'Msgs 0' : 'Msgs';
-    chip.title = 'Necesitas un plan Starter, Pro o Advanced para enviar mensajes.';
+    chip.textContent = comesSession?.token ? t('chrome.msgsDash') : t('chrome.msgsLabel');
+    chip.title = t('toast.messageUsageFail');
+    return;
+  }
+  if ((messageQuota.limit ?? 0) <= 0) {
+    chip.hidden = false;
+    chip.textContent = t('chrome.msgsZero');
+    chip.title = t('toast.messagePlanRequired');
     return;
   }
   chip.hidden = false;
-  chip.textContent = `Msgs ${messageQuota.remaining}/${messageQuota.limit}`;
-  chip.title = `Mensajes enviados esta semana (${messageQuota.plan}): Starter 1.000, Pro 30.000, Advanced 100.000. Se reinicia el lunes.`;
+  chip.textContent = t('chrome.msgsUsage', { remaining: Number(messageQuota.remaining ?? 0), limit: Number(messageQuota.limit ?? 0) });
+  chip.title = t('chrome.msgsUsageHint', { plan: String(messageQuota.plan ?? '') });
 }
 
 async function refreshMessageQuota(): Promise<void> {
   const email = comesSession?.email?.trim() ?? '';
-  if (!email || !comesSession?.subscriptionActive) {
-    messageQuota = email
-      ? localMessageQuota(email, comesSession?.plan ?? null, false)
-      : null;
+  if (!email || !comesSession?.token) {
+    messageQuota = null;
     renderMessageQuota();
     return;
   }
   try {
     const result = await comesApi('GET', '/v1/messages/quota', { token: comesSession.token });
-    const remote = result.ok ? parseMessageQuotaResponse(result.data) : null;
-    if (remote) {
-      messageQuota = remote;
-    } else {
-      messageQuota = localMessageQuota(email, comesSession.plan, comesSession.subscriptionActive);
-    }
+    messageQuota = result.ok ? parseMessageQuotaResponse(result.data) : null;
   } catch {
-    messageQuota = localMessageQuota(email, comesSession.plan, comesSession.subscriptionActive);
+    messageQuota = null;
   }
   renderMessageQuota();
 }
@@ -2747,7 +3219,13 @@ async function consumeAgentRequest(): Promise<boolean> {
     return false;
   }
   if (isUnlimitedMessageQuota(messageQuota, email)) return true;
-  if (messageQuota && (messageQuota.remaining ?? 0) < 1) {
+  if (!messageQuota) {
+    showToast(comesSession.subscriptionActive
+      ? 'No se pudo verificar el uso real de mensajes en el servidor.'
+      : t('toast.needSignInMessages'), true);
+    return false;
+  }
+  if ((messageQuota.remaining ?? 0) < 1) {
     showToast(t('toast.messagesExhaustedPlan', { plan: messageQuota.plan }), true);
     return false;
   }
@@ -2781,39 +3259,36 @@ async function consumeAgentRequest(): Promise<boolean> {
       showToast(t('toast.needSignInAgain'), true);
       return false;
     }
+    showToast(readApiError(result.data, t('toast.messageUsageFail')), true);
+    return false;
   } catch {
-    // fall through to local
-  }
-  const next = messageQuota
-    ? consumeLocalMessage(messageQuota, email, 1)
-    : consumeLocalMessage(localMessageQuota(email, comesSession.plan, comesSession.subscriptionActive), email, 1);
-  if (!next) {
-    showToast(t('toast.messagesExhaustedMonday'), true);
+    showToast(t('toast.messageUsageFail'), true);
     return false;
   }
-  messageQuota = next;
-  renderMessageQuota();
-  return true;
 }
 
 async function consumeSpeechText(text: string): Promise<boolean> {
   const tokens = countSpeechTokens(text);
   const email = comesSession?.email?.trim() ?? '';
   if (tokens < 1) return true;
-  if (!email) {
+  if (!email || !comesSession?.token) {
     showToast(t('toast.needSignInVoice'), true);
     return false;
   }
   if (isUnlimitedSpeechQuota(speechQuota, email)) {
     return true;
   }
-  if (!speechQuota || (speechQuota.remaining ?? 0) < tokens) {
+  if (!speechQuota) {
+    showToast(comesSession.subscriptionActive ? t('toast.voiceQuotaFail') : t('toast.voiceNoSub'), true);
+    return false;
+  }
+  if ((speechQuota.remaining ?? 0) < tokens) {
     showToast(t('toast.voiceTokensShort', { tokens }), true);
     return false;
   }
   try {
     const result = await comesApi('POST', '/v1/speech/consume', {
-      token: comesSession?.token,
+      token: comesSession.token,
       body: { text },
     });
     if (result.ok) {
@@ -2829,14 +3304,6 @@ async function consumeSpeechText(text: string): Promise<boolean> {
         showToast(t('toast.voiceNoSub'), true);
         return false;
       }
-      const next = consumeLocalSpeech(speechQuota, email, tokens);
-      if (!next) {
-        showToast(t('toast.voiceTokensNone'), true);
-        return false;
-      }
-      speechQuota = next;
-      renderSpeechQuota();
-      return true;
     }
     const remote = parseSpeechQuotaResponse(result.data);
     if (remote) {
@@ -2846,20 +3313,14 @@ async function consumeSpeechText(text: string): Promise<boolean> {
     showToast(readApiError(result.data, t('toast.voiceQuotaFail')), true);
     return false;
   } catch {
-    const next = consumeLocalSpeech(speechQuota, email, tokens);
-    if (!next) {
-      showToast(t('toast.voiceTokensNone'), true);
-      return false;
-    }
-    speechQuota = next;
-    renderSpeechQuota();
-    return true;
+    showToast(t('toast.voiceQuotaFail'), true);
+    return false;
   }
 }
 
 async function transcribeComesSpeech(blob: Blob, language: string): Promise<string> {
   const token = comesSession?.token;
-  if (!token) throw new Error('Inicia sesión en ComesADE para usar voz.');
+  if (!token) throw new Error(t('toast.voiceSignInShort'));
   const form = new FormData();
   const filename = blob.type.includes('mp4') ? 'speech.mp4' : 'speech.webm';
   form.append('audio', blob, filename);
@@ -3096,14 +3557,78 @@ async function openComesBillingPortal(): Promise<void> {
 }
 
 async function ensureSignedInForDesktop(): Promise<boolean> {
-  await refreshComesSubscription();
-  if (hasActiveSubscription()) return true;
-  openMainMenu();
-  showToast(comesSession?.token
-    ? t('auth.needPlan')
-    : t('auth.needSignIn'));
-  document.querySelector<HTMLInputElement>('#main-menu-email')?.focus();
-  return false;
+  return enforceActiveSubscription({ refresh: true, announce: true });
+}
+
+let subscriptionWatchTimer: number | undefined;
+let lastSubscriptionGateToastAt = 0;
+let subscriptionEnforceInFlight: Promise<boolean> | null = null;
+
+/** Cierra el escritorio y obliga a iniciar sesión / renovar plan. */
+function lockAppToAuthScreen(announce: boolean): void {
+  closeAccountMenu();
+  document.body.classList.remove('settings-open');
+  modalRoot.querySelectorAll('.modal-backdrop:not(.auth-gate)').forEach((node) => node.remove());
+  if (nativeAgentBusy && nativeAgentRequestId) {
+    void invoke('agent_chat_cancel', { requestId: nativeAgentRequestId }).catch(() => undefined);
+    nativeAgentBusy = false;
+    nativeAgentRequestId = null;
+  }
+  const alreadyAuth = Boolean(document.querySelector('.auth-gate'));
+  const formMismatch = alreadyAuth && (
+    (!comesSession?.token && Boolean(document.querySelector('#main-menu-subscribe')))
+    || (Boolean(comesSession?.token) && Boolean(document.querySelector('#main-menu-auth')))
+  );
+  if (!alreadyAuth || formMismatch) {
+    openComesAuthScreen();
+  } else {
+    setMainMenuOpen(true);
+    document.body.classList.add('auth-gate-open');
+    renderTitlebarAccount();
+  }
+  if (!announce) return;
+  const now = Date.now();
+  if (now - lastSubscriptionGateToastAt < 8_000) return;
+  lastSubscriptionGateToastAt = now;
+  if (!comesSession?.token) showToast(t('auth.needSignIn'), true);
+  else showToast(t('auth.subscriptionExpired'), true);
+}
+
+/**
+ * Comprueba la suscripción real en la API. Sin plan activo no se puede usar
+ * el escritorio: se vuelve a la pantalla de cuenta.
+ */
+async function enforceActiveSubscription(options: { refresh?: boolean; announce?: boolean } = {}): Promise<boolean> {
+  if (subscriptionEnforceInFlight) return subscriptionEnforceInFlight;
+  const run = (async (): Promise<boolean> => {
+    if (options.refresh !== false) await refreshComesSubscription();
+    if (hasActiveSubscription()) {
+      if (document.querySelector('.auth-gate')) openMainMenu();
+      else document.body.classList.remove('auth-gate-open');
+      return true;
+    }
+    lockAppToAuthScreen(options.announce !== false);
+    return false;
+  })();
+  subscriptionEnforceInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (subscriptionEnforceInFlight === run) subscriptionEnforceInFlight = null;
+  }
+}
+
+function startSubscriptionWatch(): void {
+  if (subscriptionWatchTimer) return;
+  const check = (): void => {
+    if (bootSplashActive) return;
+    void enforceActiveSubscription({ refresh: true, announce: true });
+  };
+  subscriptionWatchTimer = window.setInterval(check, 45_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') check();
+  });
+  window.addEventListener('focus', check);
 }
 
 async function submitComesAuth(): Promise<void> {
@@ -3133,7 +3658,8 @@ async function submitComesAuth(): Promise<void> {
     showToast(hasActiveSubscription()
       ? t('auth.activePlan')
       : t('auth.signedIn'));
-    openMainMenu();
+    if (hasActiveSubscription()) openMainMenu();
+    else openComesAuthScreen();
   } catch (error) {
     showAuthError(String(error).replace(/^Error:\s*/, ''));
   } finally {
@@ -3168,7 +3694,10 @@ async function handleAccountMenuAction(action: string): Promise<void> {
     const active = await refreshComesSubscription();
     renderTitlebarAccount();
     if (active) openMainMenu();
-    else showToast(t('account.planPending'), true);
+    else {
+      showToast(t('account.planPending'), true);
+      openComesAuthScreen();
+    }
     return;
   }
   if (action === 'settings') {
@@ -3178,7 +3707,7 @@ async function handleAccountMenuAction(action: string): Promise<void> {
   if (action === 'signout') {
     await signOutComesAccount();
     showToast(t('auth.signedOut'));
-    openMainMenu();
+    openComesAuthScreen();
   }
 }
 
@@ -3246,7 +3775,7 @@ function openComesAuthScreen(): void {
   });
   document.querySelector('#auth-gate-signout')?.addEventListener('click', () => {
     void signOutComesAccount().then(() => {
-      openMainMenu();
+      openComesAuthScreen();
     });
   });
   document.querySelector<HTMLInputElement>('#main-menu-email')?.focus();
@@ -3287,6 +3816,8 @@ function renderProviderAccountCard(): void {
   syncComposerPlaceholder();
   renderComposerUsage();
   renderComposerModel();
+  renderComposerAccountB();
+  renderComposerModelB();
   renderAsaOverview();
 }
 
@@ -3524,10 +4055,10 @@ function thoughtElapsedLabel(): string {
 function startAgentThought(): void {
   clearAgentThoughtTimer();
   agentTurnStartedAt = Date.now();
-  agentThoughtLine = appendNativeAgentLine('thought', 'Thinking…');
+  agentThoughtLine = appendNativeAgentLine('thought', t('chrome.thinking'));
   agentThoughtTimer = window.setInterval(() => {
     const pre = agentThoughtLine?.querySelector('pre');
-    if (pre && !agentThoughtLine?.classList.contains('is-settled')) pre.textContent = `Thinking · ${Math.max(1, Math.round((Date.now() - agentTurnStartedAt) / 1000))}s`;
+    if (pre && !agentThoughtLine?.classList.contains('is-settled')) pre.textContent = t('chrome.thinkingSecs', { seconds: Math.max(1, Math.round((Date.now() - agentTurnStartedAt) / 1000)) });
   }, 1000);
 }
 
@@ -3549,14 +4080,220 @@ function setAgentPendingStep(visible: boolean): void {
   agentPendingStep = appendNativeAgentLine('step', 'Planning next moves');
 }
 
-function appendAgentFilesChanged(entries: GitStatusEntry[]): void {
-  if (!entries.length) return;
+function noteAgentTurnFileEdit(relative: string): void {
+  const path = normalizedRelativePath(relative);
+  if (!path) return;
+  const key = relativePathKey(path);
+  if (agentTurnEditedFiles.has(key)) return;
+  agentTurnEditedFiles.set(key, { path, additions: 0, deletions: 0 });
+}
+
+function findBaselineContent(relative: string): string | undefined {
+  const key = relativePathKey(relative);
+  const direct = agentTurnContentBaseline.get(key);
+  if (direct !== undefined) return direct;
+  for (const [candidate, content] of agentTurnContentBaseline) {
+    if (key === candidate || key.endsWith(candidate) || candidate.endsWith(key)) return content;
+  }
+  return undefined;
+}
+
+function findBaselineDiff(relative: string): GitFileDiffStat | undefined {
+  const key = relativePathKey(relative);
+  const direct = agentTurnDiffBaseline.get(key);
+  if (direct) return direct;
+  for (const [candidate, stat] of agentTurnDiffBaseline) {
+    if (key === candidate || key.endsWith(candidate) || candidate.endsWith(key)) return stat;
+  }
+  return undefined;
+}
+
+/** Diff real de líneas (LCS): additions/deletions del turno, no del archivo entero vs vacío. */
+function countLineDiff(before: string, after: string): { additions: number; deletions: number } {
+  const a = before.length ? before.split(/\r\n|\r|\n/) : [];
+  const b = after.length ? after.split(/\r\n|\r|\n/) : [];
+  if (a.length && a[a.length - 1] === '') a.pop();
+  if (b.length && b[b.length - 1] === '') b.pop();
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return { additions: n, deletions: 0 };
+  if (n === 0) return { additions: 0, deletions: m };
+  if (m * n > 1_500_000) {
+    const beforeSet = new Map<string, number>();
+    for (const line of a) beforeSet.set(line, (beforeSet.get(line) ?? 0) + 1);
+    let common = 0;
+    for (const line of b) {
+      const left = beforeSet.get(line) ?? 0;
+      if (left > 0) {
+        common += 1;
+        beforeSet.set(line, left - 1);
+      }
+    }
+    return { additions: n - common, deletions: m - common };
+  }
+  const row = new Uint32Array(n + 1);
+  for (let i = 1; i <= m; i += 1) {
+    let prevDiag = 0;
+    for (let j = 1; j <= n; j += 1) {
+      const temp = row[j];
+      row[j] = a[i - 1] === b[j - 1] ? prevDiag + 1 : Math.max(row[j], row[j - 1]);
+      prevDiag = temp;
+    }
+  }
+  const lcs = row[n];
+  return { additions: n - lcs, deletions: m - lcs };
+}
+
+async function captureAgentTurnBaselines(): Promise<void> {
+  agentTurnDiffBaseline = new Map();
+  agentTurnContentBaseline = new Map();
+  const workspace = getWorkspace();
+  if (!workspace) return;
+  await refreshGitPanel();
+  for (const file of currentGitDiffStats?.files ?? []) {
+    const key = relativePathKey(file.path);
+    agentTurnDiffBaseline.set(key, {
+      path: file.path,
+      additions: Number(file.additions ?? 0),
+      deletions: Number(file.deletions ?? 0),
+    });
+  }
+  const roots = [...new Set([
+    currentGitQueryRoot ?? workspace.path,
+    workspace.path,
+    activeProjectRoot() ?? workspace.path,
+  ].filter(Boolean))];
+  for (const entry of currentGitStatus?.entries ?? []) {
+    const relative = entry.path.trim();
+    if (!relative) continue;
+    for (const root of roots) {
+      try {
+        const content = await invoke<string>('read', { root, relative });
+        agentTurnContentBaseline.set(relativePathKey(relative), content);
+        break;
+      } catch {
+        /* try next root */
+      }
+    }
+  }
+  // También el archivo abierto: a menudo es el que el agente va a tocar.
+  if (openFilePath && openFileRoot) {
+    const key = relativePathKey(openFilePath);
+    if (!agentTurnContentBaseline.has(key)) {
+      try {
+        const content = await invoke<string>('read', { root: openFileRoot, relative: openFilePath });
+        agentTurnContentBaseline.set(key, content);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+async function resolveRealAgentTurnDiffStats(): Promise<GitFileDiffStat[]> {
+  const workspace = getWorkspace();
+  const relatives = [...agentTurnEditedFiles.values()].map((file) => file.path);
+  if (!workspace || !relatives.length) return [];
+
+  const results: GitFileDiffStat[] = [];
+  const roots = [...new Set([
+    workspace.path,
+    activeProjectRoot() ?? workspace.path,
+    openFileRoot ?? workspace.path,
+  ].filter(Boolean))];
+
+  for (const relative of relatives) {
+    let after = '';
+    let readRoot = workspace.path;
+    for (const root of roots) {
+      try {
+        after = await invoke<string>('read', { root, relative });
+        readRoot = root;
+        break;
+      } catch {
+        after = '';
+      }
+    }
+
+    const contentBefore = findBaselineContent(relative);
+    const gitBaseline = findBaselineDiff(relative);
+
+    if (contentBefore !== undefined) {
+      const lineStats = countLineDiff(contentBefore, after);
+      results.push({ path: relative, additions: lineStats.additions, deletions: lineStats.deletions });
+      continue;
+    }
+
+    if (gitBaseline) {
+      try {
+        const real = await invoke<GitFileDiffStat[]>('path_diff_stats', {
+          workspace: workspace.path,
+          relatives: [relative],
+        });
+        const now = real[0];
+        results.push({
+          path: relative,
+          additions: Math.max(0, Number(now?.additions ?? 0) - Number(gitBaseline.additions ?? 0)),
+          deletions: Math.max(0, Number(now?.deletions ?? 0) - Number(gitBaseline.deletions ?? 0)),
+        });
+        continue;
+      } catch {
+        /* fall through */
+      }
+    }
+
+    // Limpio al inicio del turno: HEAD ≈ contenido de entonces.
+    let before = '';
+    try {
+      const versions = await invoke<GitFileVersions>('file_versions', {
+        path: readRoot,
+        relative,
+        staged: false,
+      });
+      before = versions.original;
+    } catch {
+      before = '';
+    }
+    const lineStats = countLineDiff(before, after);
+    results.push({ path: relative, additions: lineStats.additions, deletions: lineStats.deletions });
+  }
+
+  return results.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function appendAgentFilesChanged(files: GitFileDiffStat[]): void {
+  if (!files.length) return;
+  document.querySelectorAll('.native-agent-line-files').forEach((node) => node.remove());
+  const additions = files.reduce((sum, file) => sum + Number(file.additions ?? 0), 0);
+  const deletions = files.reduce((sum, file) => sum + Number(file.deletions ?? 0), 0);
   const line = document.createElement('div');
   line.className = 'native-agent-line native-agent-line-files';
-  line.innerHTML = `<div class="agent-files-changed"><header><strong>${entries.length} file${entries.length === 1 ? '' : 's'} changed</strong><button type="button" class="agent-files-review">Review</button></header><ul>${entries.map((entry) => `<li><span>${escapeHtml(entry.path)}</span><em>${escapeHtml((entry.indexStatus + entry.worktreeStatus).trim() || 'M')}</em></li>`).join('')}</ul></div>`;
-  line.querySelector('.agent-files-review')?.addEventListener('click', () => {
-    setView('terminals');
-    void refreshGitPanel();
+  const title = files.length === 1
+    ? t('chrome.fileChangedOne')
+    : t('chrome.filesChanged', { count: files.length });
+  const rows = files.map((file) => {
+    const add = Number(file.additions ?? 0);
+    const del = Number(file.deletions ?? 0);
+    return `<li><button type="button" class="agent-files-path" data-agent-file-path="${escapeHtml(file.path)}" title="${escapeHtml(file.path)}"><span>${escapeHtml(file.path)}</span><span class="agent-files-counts"><b class="stat-add">+${add}</b><b class="stat-delete">−${del}</b></span></button><button type="button" class="agent-files-review agent-files-review-file" data-agent-review-path="${escapeHtml(file.path)}">${escapeHtml(t('chrome.review'))}</button></li>`;
+  }).join('');
+  line.innerHTML = `<div class="agent-files-changed"><header><div class="agent-files-changed-heading"><strong>${escapeHtml(title)}</strong><span class="agent-files-totals"><b class="stat-add">+${additions}</b><b class="stat-delete">−${deletions}</b></span></div><button type="button" class="agent-files-review" data-agent-review-all="1">${escapeHtml(t('chrome.review'))}</button></header><ul>${rows}</ul></div>`;
+  const openReview = (path?: string) => {
+    inspectorCollapsed = false;
+    layoutState.inspectorCollapsed = false;
+    setInspectorTab('git');
+    applyLayout();
+    if (path) void loadGitDiff(path);
+    else if (files[0]) void loadGitDiff(files[0].path);
+  };
+  line.querySelector('[data-agent-review-all]')?.addEventListener('click', () => openReview());
+  line.querySelectorAll<HTMLButtonElement>('[data-agent-file-path]').forEach((button) => {
+    button.addEventListener('click', () => openReview(button.dataset.agentFilePath));
+  });
+  line.querySelectorAll<HTMLButtonElement>('[data-agent-review-path]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openReview(button.dataset.agentReviewPath);
+    });
   });
   nativeAgentLog.appendChild(line);
   showNativeAgentLog();
@@ -3585,6 +4322,7 @@ function syncComposerPlaceholder(): void {
   const selected = selectedModelChoice(account);
   if (title) title.textContent = selected ? selected.option.label : t('chrome.agent');
   nativeAgentInput.placeholder = nativeAgentLog.childElementCount ? t('chrome.writeFollowup') : t('chrome.writeMessage');
+  renderComposerUsage();
 }
 
 function appendNativeAgentLine(kind: string, text: string, heading?: string, images?: string[]): HTMLDivElement {
@@ -3625,7 +4363,14 @@ function setNativeAgentBusy(busy: boolean): void {
   if (nativeAgentStatus) nativeAgentStatus.hidden = !busy;
   document.querySelector('#native-agent-panel')?.classList.toggle('is-busy', busy);
   if (busy) {
-    agentTurnGitSnapshot = Object.fromEntries((currentGitStatus?.entries ?? []).map((entry) => [entry.path, `${entry.indexStatus}${entry.worktreeStatus}`]));
+    agentTurnGitSnapshot = Object.fromEntries((currentGitStatus?.entries ?? []).map((entry) => [
+      relativePathKey(entry.path),
+      `${entry.indexStatus}${entry.worktreeStatus}`,
+    ]));
+    for (const entry of currentGitStatus?.entries ?? []) {
+      agentTurnGitSnapshot[entry.path] = `${entry.indexStatus}${entry.worktreeStatus}`;
+    }
+    agentTurnEditedFiles = new Map();
     startAgentThought();
   } else {
     settleAgentThought();
@@ -3648,6 +4393,13 @@ async function sendNativeAgentMessage(): Promise<void> {
   const images = designPicks.map((pick) => pick.image).filter((value): value is string => Boolean(value));
   const content = nativeAgentInput.value.trim() || (images.length ? 'Cambia el UI de esta captura en el codigo real del workspace.' : '');
   if (!content) return;
+  closeSlashCommandMenu();
+  if (await tryHandleLocalSlashCommand(content, 'a')) {
+    nativeAgentInput.value = '';
+    resizeNativeAgentInput();
+    return;
+  }
+  const forwardSlash = parseSlashCommand(content, provider)?.mode === 'forward';
   if (!(await consumeAgentRequest())) return;
   nativeAgentInput.value = '';
   resizeNativeAgentInput();
@@ -3657,9 +4409,14 @@ async function sendNativeAgentMessage(): Promise<void> {
   appendNativeAgentLine('user', content, undefined, images);
   const contextualMessages = nativeAgentMessages.map((message, index) => (
     index === nativeAgentMessages.length - 1 && message.role === 'user'
-      ? { role: 'user', content: `${composerEditorContext()}\n\n${message.content}`, images: message.images }
+      ? {
+          role: 'user' as const,
+          content: forwardSlash ? message.content : `${composerEditorContext()}\n\n${message.content}`,
+          images: message.images,
+        }
       : message
   ));
+  await captureAgentTurnBaselines();
   setNativeAgentBusy(true);
   try {
     nativeAgentRequestId = await invoke<string>('agent_chat_start', {
@@ -3696,6 +4453,12 @@ async function sendNativeAgentMessageB(): Promise<void> {
   }
   const content = input.value.trim();
   if (!content) return;
+  closeSlashCommandMenu();
+  if (await tryHandleLocalSlashCommand(content, 'b')) {
+    input.value = '';
+    return;
+  }
+  const forwardSlash = parseSlashCommand(content, provider)?.mode === 'forward';
   if (!(await consumeAgentRequest())) return;
   input.value = '';
   nativeAgentStreamPreB = null;
@@ -3709,7 +4472,10 @@ async function sendNativeAgentMessageB(): Promise<void> {
   document.querySelector('#native-agent-panel-b')?.classList.add('is-busy');
   const contextualMessages = nativeAgentMessagesB.map((message, index) => (
     index === nativeAgentMessagesB.length - 1 && message.role === 'user'
-      ? { role: 'user', content: `${composerEditorContext()}\n\n${message.content}` }
+      ? {
+          role: 'user' as const,
+          content: forwardSlash ? message.content : `${composerEditorContext()}\n\n${message.content}`,
+        }
       : message
   ));
   try {
@@ -3732,8 +4498,8 @@ async function sendNativeAgentMessageB(): Promise<void> {
   } catch (error) {
     nativeAgentBusyB = false;
     document.querySelector<HTMLButtonElement>('#native-agent-send-b')?.removeAttribute('disabled');
-    const cancel = document.querySelector<HTMLButtonElement>('#native-agent-cancel-b');
-    if (cancel) cancel.hidden = true;
+    const cancelBtn = document.querySelector<HTMLButtonElement>('#native-agent-cancel-b');
+    if (cancelBtn) cancelBtn.hidden = true;
     input.disabled = false;
     document.querySelector('#native-agent-panel-b')?.classList.remove('is-busy');
     appendNativeAgentLineB('error', String(error));
@@ -3791,9 +4557,18 @@ function handleAgentTool(payload: { requestId: string; name: string; input: stri
   if (isB) appendNativeAgentLineB('tool', payload.output || payload.input, title);
   else appendNativeAgentLine('tool', payload.output || payload.input, title);
   if (!isB) setAgentPendingStep(true);
+  if (payload.name === 'read_file' && !payload.output.toLowerCase().startsWith('error')) {
+    const relative = relativeFromToolInput(payload.input);
+    if (relative && findBaselineContent(relative) === undefined) {
+      agentTurnContentBaseline.set(relativePathKey(relative), payload.output);
+    }
+  }
   if (payload.name === 'write_file' && !payload.output.toLowerCase().startsWith('error')) {
     const relative = relativeFromToolInput(payload.input);
-    if (relative) void openWorkspaceFile(relative, { fromAgent: true });
+    if (relative) {
+      noteAgentTurnFileEdit(relative);
+      void openWorkspaceFile(relative, { fromAgent: true });
+    }
     void refreshFileTree();
     void refreshGitPanel();
   }
@@ -3815,17 +4590,39 @@ function handleAgentDone(payload: { requestId: string; error: string | null }): 
     return;
   }
   if (nativeAgentRequestId && payload.requestId !== nativeAgentRequestId) return;
-  if (payload.error) appendNativeAgentLine('error', payload.error);
+  if (payload.error) {
+    appendNativeAgentLine('error', payload.error);
+    // Fallback solo si el proveedor no emitio snapshot exhausted (p. ej. CLI).
+    const lower = payload.error.toLowerCase();
+    if (/\b429\b|rate.?limit|quota|too many requests|agotad|l[ií]mite/.test(lower)) {
+      const providerId = nativeAgentProvider.value;
+      const snapshot = providerUsage[providerId];
+      if (snapshot?.exhausted) {
+        // Ya avisamos desde applyUsageSnapshot / agent-usage.
+      } else if (snapshot) {
+        warnUsageExhausted({ ...snapshot, exhausted: true });
+      } else {
+        const account = providerAccounts.find((item) => item.id === providerId);
+        const alternative = providerAccounts.find(
+          (item) => item.connected && item.id !== providerId && !providerUsage[item.id]?.exhausted,
+        );
+        const parts = [t('toast.usageExhausted', { provider: account?.name ?? providerId })];
+        if (alternative) parts.push(t('toast.usageContinueWith', { name: alternative.name }));
+        showToast(`${parts.join('; ')}.`, true);
+      }
+    }
+  }
   nativeAgentStreamPre?.closest('.native-agent-line')?.classList.remove('is-streaming');
   nativeAgentStreamPre = null;
   setNativeAgentBusy(false);
   nativeAgentRequestId = null;
-  void refreshGitPanel().then(() => {
-    const next = currentGitStatus?.entries ?? [];
-    const unique = next.filter((entry) => agentTurnGitSnapshot[entry.path] !== `${entry.indexStatus}${entry.worktreeStatus}`);
-    if (unique.length) appendAgentFilesChanged(unique);
-    syncComposerPlaceholder();
-  });
+  const finishFilesPanel = (): void => {
+    void resolveRealAgentTurnDiffStats().then((files) => {
+      if (files.length) appendAgentFilesChanged(files);
+      syncComposerPlaceholder();
+    });
+  };
+  void refreshGitPanel().then(finishFilesPanel, finishFilesPanel);
 }
 
 async function cancelNativeAgent(): Promise<void> {
@@ -4141,6 +4938,7 @@ function localWorkspaceForGithubRepo(repository: GithubRepository): WorkspaceInf
   const repoName = repository.name.toLowerCase();
   const fullName = repository.fullName.toLowerCase();
   return workspaces.find((workspace) => {
+    if (workspace.repository?.toLowerCase() === fullName) return true;
     const normalized = workspace.path.replace(/\\/g, '/').toLowerCase();
     const workspaceName = workspace.name.toLowerCase();
     return workspaceName === repoName
@@ -4148,6 +4946,26 @@ function localWorkspaceForGithubRepo(repository: GithubRepository): WorkspaceInf
       || normalized.endsWith(`/${repoName}`)
       || normalized.endsWith(`/${fullName}`);
   });
+}
+
+async function detectWorkspaceGithubRepository(path: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>('git_github_remote', { path });
+  } catch {
+    return null;
+  }
+}
+
+async function ensureWorkspaceHasRepository(workspace: WorkspaceInfo, announce = true): Promise<boolean> {
+  if (workspace.repository?.trim()) return true;
+  const remote = await detectWorkspaceGithubRepository(workspace.path);
+  if (remote) {
+    workspace.repository = remote;
+    saveWorkspaces();
+    return true;
+  }
+  if (announce) showToast(t('menu.needGithubRepo'), true);
+  return false;
 }
 
 function githubRepositoryRowsHtml(search = '', selectedFullName = ''): string {
@@ -4223,12 +5041,12 @@ async function openOrCloneGithubRepository(repository: GithubRepository, enterAf
   } catch (error) {
     const message = String(error);
     if (/destino del clone|ya existe|not empty|already exists/i.test(message)) {
-      await registerWorkspaceFromPath(destination, enterAfter);
+      await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
       return;
     }
     throw error;
   }
-  await registerWorkspaceFromPath(destination, enterAfter);
+  await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
   showToast(t('toast.githubCloned', { name: repository.fullName }));
 }
 
@@ -4746,7 +5564,7 @@ async function checkGithubReleaseUpdate(): Promise<GithubReleaseUpdate | null> {
       body: typeof release.body === 'string' ? release.body : '',
       date: typeof release.published_at === 'string' ? release.published_at : null,
       downloadUrl: installer?.browser_download_url ?? releaseUrl,
-      downloadLabel: installer ? t('modal.downloadInstaller') : t('modal.openRelease'),
+      downloadLabel: installer ? t('modal.installUpdate') : t('modal.openRelease'),
       releaseUrl,
     };
   } finally {
@@ -4765,10 +5583,10 @@ function renderUpdateButton(): void {
   const version = availableAppUpdate?.version ?? '';
   button.innerHTML = `${appUpdateInstalling ? icons.refresh : icons.updateNow}<span>${escapeHtml(t(appUpdateInstalling ? 'chrome.updateInstalling' : 'chrome.updateNow'))}</span>`;
   button.title = appUpdateInstalling
-    ? 'Instalando la actualización'
+    ? t('chrome.updateInstallingTitle')
     : version
-      ? `UPDATE · ComesADE ${version}`
-      : 'Hay una actualización disponible';
+      ? t('chrome.updateAvailableVersion', { version })
+      : t('chrome.update');
   button.setAttribute('aria-label', button.title);
 }
 
@@ -4901,27 +5719,68 @@ async function installAppUpdate(): Promise<void> {
   const update = availableAppUpdate;
   if (!update || appUpdateInstalling) return;
   if (isGithubReleaseUpdate(update)) {
+    const canInstallLocally = /\.(exe|msi)(\?|$)/i.test(update.downloadUrl);
+    if (!canInstallLocally) {
+      appUpdateInstalling = true;
+      renderUpdateButton();
+      try {
+        await invoke('open_external_url', { url: update.downloadUrl });
+        availableAppUpdate = null;
+        appUpdateInstalling = false;
+        renderUpdateButton();
+        modalRoot.innerHTML = '';
+        showToast(t('toast.updateDownloadOpened'));
+      } catch (error) {
+        appUpdateInstalling = false;
+        renderUpdateButton();
+        showToast(t('toast.updateDownloadFail', { error: String(error) }), true);
+        openAppUpdateModal();
+      }
+      return;
+    }
+
     appUpdateInstalling = true;
     renderUpdateButton();
     const installButton = document.querySelector<HTMLButtonElement>('#app-update-install');
     const cancelButton = document.querySelector<HTMLButtonElement>('#app-update-cancel');
     const closeButton = document.querySelector<HTMLButtonElement>('#app-update-close');
-    if (installButton) installButton.disabled = true;
+    if (installButton) {
+      installButton.disabled = true;
+      installButton.textContent = t('chrome.downloadingEllipsis');
+    }
     if (cancelButton) cancelButton.disabled = true;
     if (closeButton) closeButton.disabled = true;
-    updateInstallProgress('Abriendo la descarga oficial de GitHub...');
+    updateInstallProgress(t('chrome.updateDownloading'), 0);
+
+    let unlistenProgress: UnlistenFn | null = null;
     try {
-      await invoke('open_external_url', { url: update.downloadUrl });
+      unlistenProgress = await listen<{ downloaded: number; total?: number | null }>('app-update-download-progress', (event) => {
+        const downloaded = Number(event.payload?.downloaded ?? 0);
+        const total = event.payload?.total == null ? 0 : Number(event.payload.total);
+        if (total > 0) {
+          const pct = Math.min(99, Math.round((downloaded / total) * 100));
+          updateInstallProgress(t('chrome.downloadingPct', { pct: String(pct), size: formatUpdateBytes(total) }), pct);
+        } else {
+          updateInstallProgress(t('chrome.updateDownloading'));
+        }
+      });
+      await invoke('download_and_install_update', { url: update.downloadUrl });
+      if (installButton) installButton.textContent = t('chrome.installingEllipsis');
+      updateInstallProgress(t('chrome.downloadVerifiedInstalling'), 100);
       availableAppUpdate = null;
       appUpdateInstalling = false;
       renderUpdateButton();
-      modalRoot.innerHTML = '';
-      showToast(t('toast.updateDownloadOpened'));
+      updateInstallProgress(t('chrome.updateInstalledRestarting'));
+      showToast(t('toast.updateInstallingNow'));
     } catch (error) {
       appUpdateInstalling = false;
       renderUpdateButton();
-      showToast(t('toast.updateDownloadFail', { error: String(error) }), true);
+      showToast(t('toast.updateInstallFail', { error: String(error) }), true);
       openAppUpdateModal();
+    } finally {
+      if (unlistenProgress) {
+        try { unlistenProgress(); } catch { /* ignore */ }
+      }
     }
     return;
   }
@@ -4932,11 +5791,11 @@ async function installAppUpdate(): Promise<void> {
   const closeButton = document.querySelector<HTMLButtonElement>('#app-update-close');
   if (installButton) {
     installButton.disabled = true;
-    installButton.textContent = 'Descargando…';
+    installButton.textContent = t('chrome.downloadingEllipsis');
   }
   if (cancelButton) cancelButton.disabled = true;
   if (closeButton) closeButton.disabled = true;
-  updateInstallProgress('Conectando con el release firmado…');
+  updateInstallProgress(t('chrome.connectingRelease'));
   let downloaded = 0;
   let contentLength = 0;
   let installed = false;
@@ -4944,26 +5803,26 @@ async function installAppUpdate(): Promise<void> {
     await update.downloadAndInstall((event) => {
       if (event.event === 'Started') {
         contentLength = event.data.contentLength ?? 0;
-        updateInstallProgress(contentLength ? `Descargando 0% (${formatUpdateBytes(contentLength)})` : 'Descargando actualización…', contentLength ? 0 : undefined);
+        updateInstallProgress(contentLength ? t('chrome.downloadingPct', { pct: '0', size: formatUpdateBytes(contentLength) }) : t('chrome.updateDownloading'), contentLength ? 0 : undefined);
         return;
       }
       if (event.event === 'Progress') {
         downloaded += event.data.chunkLength;
         const progressValue = contentLength ? Math.min(99, Math.round((downloaded / contentLength) * 100)) : undefined;
         const progress = typeof progressValue === 'number' ? ` ${progressValue}%` : '';
-        updateInstallProgress(`Descargando${progress}…`, progressValue);
+        updateInstallProgress(t('chrome.downloadingPctPlain', { progress }), progressValue);
         return;
       }
       if (event.event === 'Finished') {
-        if (installButton) installButton.textContent = 'Instalando…';
-        updateInstallProgress('Descarga verificada. Instalando…', 100);
+        if (installButton) installButton.textContent = t('chrome.installingEllipsis');
+        updateInstallProgress(t('chrome.downloadVerifiedInstalling'), 100);
       }
     });
     installed = true;
     availableAppUpdate = null;
     appUpdateInstalling = false;
     renderUpdateButton();
-    updateInstallProgress('Actualización instalada. Reiniciando ComesADE…');
+    updateInstallProgress(t('chrome.updateInstalledRestarting'));
     await relaunch();
   } catch (error) {
     appUpdateInstalling = false;
@@ -4979,7 +5838,7 @@ async function installAppUpdate(): Promise<void> {
 }
 
 function formatUpdateBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return 'tamaño desconocido';
+  if (!Number.isFinite(bytes) || bytes <= 0) return t('chrome.updateSizeUnknown');
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
@@ -5005,6 +5864,10 @@ function workspaceNameFromPath(path: string): string {
 }
 
 function openDesktop(): void {
+  if (!hasActiveSubscription()) {
+    lockAppToAuthScreen(true);
+    return;
+  }
   const closingMainMenu = mainMenuOpen;
   setMainMenuOpen(false);
   if (closingMainMenu && layoutState.sidebarCollapsed) {
@@ -5061,6 +5924,10 @@ function handleWorkspaceFileChange(payload: WorkspaceFileChange): void {
 
 async function activateWorkspace(workspace: WorkspaceInfo, enterAfter = true): Promise<void> {
   try {
+    if (!(await ensureWorkspaceHasRepository(workspace))) {
+      openMainMenu();
+      return;
+    }
     const switchingWorkspace = activeWorkspaceId !== workspace.id;
     const resolvedPath = await invoke<string>('validate_workspace_path', { path: workspace.path });
     if (switchingWorkspace && !(await prepareEditorForRootChange(resolvedPath))) return;
@@ -5086,12 +5953,23 @@ async function activateWorkspace(workspace: WorkspaceInfo, enterAfter = true): P
   }
 }
 
-async function registerWorkspaceFromPath(path: string, enterAfter = true): Promise<void> {
+async function registerWorkspaceFromPath(path: string, enterAfter = true, repositoryFullName?: string | null): Promise<void> {
   try {
     const resolvedPath = await invoke<string>('validate_workspace_path', { path });
     const existing = workspaces.find((workspace) => sameFsPath(workspace.path, resolvedPath));
     if (existing) {
+      if (repositoryFullName && !existing.repository) {
+        existing.repository = repositoryFullName;
+        saveWorkspaces();
+      }
       await activateWorkspace(existing, enterAfter);
+      return;
+    }
+
+    const repository = repositoryFullName?.trim() || await detectWorkspaceGithubRepository(resolvedPath);
+    if (!repository) {
+      showToast(t('menu.needGithubRepo'), true);
+      openMainMenu();
       return;
     }
 
@@ -5100,6 +5978,7 @@ async function registerWorkspaceFromPath(path: string, enterAfter = true): Promi
       name: workspaceNameFromPath(resolvedPath),
       path: resolvedPath,
       createdAt: new Date().toISOString(),
+      repository,
     };
     if (!(await prepareEditorForRootChange(resolvedPath))) return;
     closeAllTools(false);
@@ -5635,9 +6514,11 @@ function refreshSavedWorkspaceSurfaces(): void {
     countLabel.textContent = workspaces.length === 1 ? t('menu.savedOne') : t('menu.savedMany', { count: workspaces.length });
   }
   const currentName = document.querySelector('#main-menu-current strong');
-  const currentPath = document.querySelector('#main-menu-current small');
+  const currentRepo = document.querySelector('#main-menu-current .workspace-repo-label');
+  const currentPath = document.querySelector('#main-menu-current small:not(.workspace-repo-label)');
   const current = getWorkspace();
   if (current && currentName) currentName.textContent = current.name;
+  if (current && currentRepo) currentRepo.textContent = workspaceRepoLabel(current);
   if (current && currentPath) currentPath.textContent = compactPathLabel(current.path);
 }
 
@@ -5710,32 +6591,64 @@ function scheduleSavedWorkspaceDelete(workspaceId: string): void {
   }, 3000);
 }
 
+let workspaceManageMenuCloser: (() => void) | null = null;
+
 function openWorkspaceManageMenu(event: MouseEvent, workspaceId: string): void {
   event.preventDefault();
   event.stopPropagation();
-  if (!getWorkspace(workspaceId)) return;
-  document.querySelector<HTMLElement>('.workspace-manage-menu')?.remove();
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return;
+  workspaceManageMenuCloser?.();
   const menu = document.createElement('div');
   menu.className = 'file-context-menu workspace-manage-menu';
-  const left = Math.min(event.clientX, window.innerWidth - 200);
-  const top = Math.min(event.clientY, window.innerHeight - 120);
+  menu.setAttribute('role', 'menu');
+  const anchor = (event.currentTarget instanceof HTMLElement && event.currentTarget.dataset.workspaceManage)
+    ? event.currentTarget
+    : (event.target as HTMLElement).closest<HTMLElement>('[data-workspace-manage]');
+  const rect = anchor?.getBoundingClientRect();
+  const width = 208;
+  const left = Math.max(8, Math.min((rect ? rect.right - width : event.clientX), window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min((rect ? rect.bottom + 6 : event.clientY), window.innerHeight - 132));
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
-  menu.innerHTML = `<button data-workspace-action="rename" type="button">${icons.pencil}<span>${escapeHtml(t('menu.rename'))}</span></button><button class="is-danger" data-workspace-action="remove" type="button">${icons.trash}<span>${escapeHtml(t('menu.remove'))}</span></button>`;
+  const hasRepo = Boolean(workspace.repository?.trim());
+  const repoAction = hasRepo
+    ? `<button data-workspace-action="change-repo" type="button" role="menuitem">${icons.github}<span>${escapeHtml(t('menu.changeRepo'))}</span></button><button data-workspace-action="unlink-repo" type="button" role="menuitem">${icons.close}<span>${escapeHtml(t('menu.unlinkRepo'))}</span></button>`
+    : `<button data-workspace-action="connect-repo" type="button" role="menuitem">${icons.github}<span>${escapeHtml(t('menu.connectRepo'))}</span></button>`;
+  menu.innerHTML = `${repoAction}<button data-workspace-action="rename" type="button" role="menuitem">${icons.pencil}<span>${escapeHtml(t('menu.rename'))}</span></button><button class="is-danger" data-workspace-action="remove" type="button" role="menuitem">${icons.trash}<span>${escapeHtml(t('menu.remove'))}</span></button>`;
   document.body.appendChild(menu);
+  let outsideTimer = 0;
   const close = (): void => {
+    if (outsideTimer) window.clearTimeout(outsideTimer);
+    outsideTimer = 0;
     menu.remove();
-    document.removeEventListener('pointerdown', outside);
+    document.removeEventListener('pointerdown', outside, true);
+    if (workspaceManageMenuCloser === close) workspaceManageMenuCloser = null;
   };
+  workspaceManageMenuCloser = close;
   const outside = (pointerEvent: PointerEvent): void => {
-    if (!menu.contains(pointerEvent.target as Node)) close();
-  };
-  document.addEventListener('pointerdown', outside);
-  menu.addEventListener('click', (clickEvent) => {
-    const action = (clickEvent.target as HTMLElement).closest<HTMLElement>('[data-workspace-action]')?.dataset.workspaceAction;
+    if (menu.contains(pointerEvent.target as Node)) return;
+    if (anchor?.contains(pointerEvent.target as Node)) return;
     close();
+  };
+  // Tras el click que abre el menú; si no, el mismo pointerdown lo cierra al instante.
+  outsideTimer = window.setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+  menu.addEventListener('click', (clickEvent) => {
+    clickEvent.preventDefault();
+    clickEvent.stopPropagation();
+    const action = (clickEvent.target as HTMLElement).closest<HTMLElement>('[data-workspace-action]')?.dataset.workspaceAction;
+    if (!action) return;
+    close();
+    const returnToMenu = Boolean(document.querySelector('#main-menu-backdrop'));
     if (action === 'rename') void renameSavedWorkspace(workspaceId);
     if (action === 'remove') scheduleSavedWorkspaceDelete(workspaceId);
+    if (action === 'connect-repo' || action === 'change-repo') void openLinkGithubRepoToWorkspace(workspaceId, returnToMenu);
+    if (action === 'unlink-repo') {
+      workspace.repository = null;
+      saveWorkspaces();
+      refreshSavedWorkspaceSurfaces();
+      showToast(t('menu.unlinkRepoDone', { name: workspace.name }));
+    }
   });
 }
 
@@ -5751,6 +6664,13 @@ function bindMainMenuWorkspaceList(list: HTMLElement): void {
       openWorkspaceManageMenu(event, button.dataset.workspaceManage ?? '');
     });
   });
+  list.querySelectorAll<HTMLButtonElement>('[data-workspace-connect-repo]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openLinkGithubRepoToWorkspace(button.dataset.workspaceConnectRepo ?? '', true);
+    });
+  });
 }
 
 function loadWorkspaces(): void {
@@ -5762,11 +6682,20 @@ function loadWorkspaces(): void {
       const value = candidate as Partial<WorkspaceInfo>;
       if (typeof value.id !== 'string' || typeof value.name !== 'string' || typeof value.path !== 'string') continue;
       if (!value.name.trim() || !value.path.trim()) continue;
-      workspaces.push({ id: value.id, name: value.name.trim(), path: value.path.trim(), createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString() });
+      workspaces.push({
+        id: value.id,
+        name: value.name.trim(),
+        path: value.path.trim(),
+        createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+        repository: typeof value.repository === 'string' && value.repository.trim()
+          ? value.repository.trim()
+          : null,
+      });
     }
   }
   const storedActive = window.localStorage.getItem(storageKeys.activeWorkspace);
   activeWorkspaceId = workspaces.some((workspace) => workspace.id === storedActive) ? storedActive : workspaces[0]?.id ?? null;
+  if (dedupeSharedPathRepositories()) saveWorkspaces();
 }
 
 function saveSessionDefinitions(): void {
@@ -5987,11 +6916,20 @@ function applyAppLanguage(): void {
   setActiveLocale(locale);
   applyDomI18n();
   renderStartCanvas();
+  filesBack.title = t('chrome.backParentFolder');
+  filesBack.setAttribute('aria-label', t('chrome.backParentFolder'));
+  filesNewFile.title = t('chrome.newFile');
+  filesNewFile.setAttribute('aria-label', t('chrome.newFile'));
+  filesNewFolder.title = t('chrome.newFolder');
+  filesNewFolder.setAttribute('aria-label', t('chrome.newFolder'));
+  syncComposerVisibility();
   updateShellLabels();
   renderTitlebarAccount();
   syncComposerPlaceholder();
   renderComposerAccount();
   renderComposerModel();
+  renderComposerAccountB();
+  renderComposerModelB();
   renderComposerUsage();
   syncSttLangButton();
   renderProviderAccountCard();
@@ -6078,9 +7016,7 @@ function loadLayout(): void {
   const restoredView = isLayoutView(stored.view) ? stored.view : 'overview';
   layoutState.view = restoredView === 'terminals' ? 'overview' : restoredView;
   layoutState.workLayout = isWorkLayout((stored as { workLayout?: unknown }).workLayout)
-    ? ((stored as { workLayout: WorkLayout }).workLayout === 'cursor' || (stored as { workLayout: WorkLayout }).workLayout === 'dual'
-      ? 'code'
-      : (stored as { workLayout: WorkLayout }).workLayout)
+    ? (stored as { workLayout: WorkLayout }).workLayout
     : 'code';
   layoutState.workspaces = {};
   if (stored.workspaces && typeof stored.workspaces === 'object') {
@@ -6140,32 +7076,90 @@ function applyWorkLayout(): void {
   const panel = document.querySelector<HTMLElement>('#native-agent-panel');
   const split = document.querySelector<HTMLElement>('#work-split');
   const layout = layoutState.workLayout ?? 'code';
-  const showBrowser = layout === 'browser' || layout === 'design' || layoutState.view === 'tools';
+  const showDual = layout === 'dual';
+  const showCursor = layout === 'cursor';
+  const showBrowser = !showDual && !showCursor && (layout === 'browser' || layout === 'design' || layoutState.view === 'tools');
   shell?.setAttribute('data-work-layout', layout);
-  if (panel && split && showBrowser) {
+  split?.classList.toggle('has-browser', showBrowser);
+  split?.classList.toggle('has-dual', showDual);
+  split?.classList.toggle('has-side-chat', showCursor);
+
+  if ((showDual || showBrowser || showCursor) && composerCollapsed) {
+    composerCollapsed = false;
+    layoutState.composerCollapsed = false;
+    shell?.classList.remove('composer-collapsed');
+  }
+
+  if (showDual) ensureSecondComposer();
+  const panelB = document.querySelector<HTMLElement>('#native-agent-panel-b');
+
+  if (panel && split && (showBrowser || showDual || showCursor)) {
     panel.classList.add('composer-dock');
-    panel.classList.remove('composer-column');
-    if (panel.parentElement !== split || split.firstElementChild !== panel) {
-      split.insertBefore(panel, split.firstElementChild);
+    panel.classList.toggle('composer-column', showDual);
+    if (showDual) {
+      if (panel.parentElement !== split || split.firstElementChild !== panel) {
+        split.insertBefore(panel, split.firstElementChild);
+      }
+      if (panelB) {
+        panelB.hidden = false;
+        panelB.classList.add('composer-dock', 'composer-column');
+        panelB.classList.remove('composer-collapsed');
+        ensureDualChatResizer(split, panel, panelB);
+        ensureSplitChatLabel(panel, t('chrome.splitChatOne'), false);
+        ensureSplitChatLabel(panelB, t('chrome.splitChatTwo'), true);
+        const logB = panelB.querySelector<HTMLElement>('#native-agent-log-b');
+        if (logB) logB.hidden = false;
+      }
+      const logA = panel.querySelector<HTMLElement>('#native-agent-log');
+      if (logA) logA.hidden = false;
+      renderComposerModelB();
+      renderComposerAccountB();
+    } else {
+      clearSplitChatLabels();
+      if (panelB) panelB.hidden = true;
+      panel.classList.remove('composer-column');
+      if (showCursor) {
+        const dock = split.querySelector<HTMLElement>('.developer-dock');
+        if (dock) dock.after(panel);
+        else if (panel.parentElement !== split) split.appendChild(panel);
+      } else if (panel.parentElement !== split || split.firstElementChild !== panel) {
+        split.insertBefore(panel, split.firstElementChild);
+      }
     }
   } else if (workspaceMainMount && panel) {
+    clearSplitChatLabels();
     panel.classList.add('composer-dock');
     panel.classList.remove('composer-column');
     if (panel.parentElement !== workspaceMainMount) workspaceMainMount.appendChild(panel);
+    if (panelB) panelB.hidden = true;
   }
-  const panelB = document.querySelector<HTMLElement>('#native-agent-panel-b');
-  if (panelB) panelB.hidden = true;
+
   shell?.style.setProperty('--composer-width', '0px');
-  split?.classList.toggle('has-browser', showBrowser);
   if (showBrowser) scheduleWebviewSync();
+  syncLayoutPickerButton();
 }
 
-const WORK_LAYOUTS: { id: WorkLayout; label: string; hint: string }[] = [
-  { id: 'code', label: 'Code', hint: 'Editor y chat abajo' },
-  { id: 'cursor', label: 'Cursor', hint: 'Archivos, editor y chat' },
-  { id: 'browser', label: 'Browser + chat', hint: 'Chat a la izquierda y navegador a la derecha' },
-  { id: 'design', label: 'Design Mode', hint: 'Captura una zona del preview y enviala al chat' },
-  { id: 'dual', label: 'Doble chat', hint: 'Dos chats a la vez' },
+function syncLayoutPickerButton(): void {
+  const pill = document.querySelector<HTMLButtonElement>('#titlebar-layout-picker');
+  if (!pill) return;
+  const layout = layoutState.workLayout ?? 'code';
+  const label = layout === 'dual' ? t('chrome.splitChat')
+    : layout === 'browser' ? t('chrome.splitBrowser')
+      : layout === 'cursor' ? t('chrome.splitCursor')
+        : layout === 'design' ? t('chrome.design')
+          : t('chrome.split');
+  pill.textContent = label;
+  pill.classList.toggle('is-active', layout !== 'code');
+  pill.title = t('chrome.splitHint');
+  pill.setAttribute('aria-label', t('chrome.splitHint'));
+}
+
+const WORK_LAYOUTS: { id: WorkLayout; labelKey: string; hintKey: string }[] = [
+  { id: 'code', labelKey: 'chrome.splitChatOnly', hintKey: 'chrome.splitChatOnlyHint' },
+  { id: 'cursor', labelKey: 'chrome.splitCursor', hintKey: 'chrome.splitCursorHint' },
+  { id: 'browser', labelKey: 'chrome.splitBrowser', hintKey: 'chrome.splitBrowserHint' },
+  { id: 'dual', labelKey: 'chrome.splitChat', hintKey: 'chrome.splitChatHint' },
+  { id: 'design', labelKey: 'chrome.design', hintKey: 'chrome.splitDesignHint' },
 ];
 
 function setWorkLayout(layout: WorkLayout): void {
@@ -6174,9 +7168,11 @@ function setWorkLayout(layout: WorkLayout): void {
     inspectorCollapsed = false;
     layoutState.inspectorCollapsed = false;
   }
-  if (layout === 'browser' || layout === 'design') {
+  if (layout === 'browser' || layout === 'design' || layout === 'dual' || layout === 'cursor') {
     composerCollapsed = false;
     layoutState.composerCollapsed = false;
+  }
+  if (layout === 'browser' || layout === 'design') {
     layoutState.view = 'tools';
   }
   if (layout === 'cursor' || layout === 'dual' || layout === 'code') {
@@ -6186,6 +7182,10 @@ function setWorkLayout(layout: WorkLayout): void {
   saveLayout();
   scheduleWebviewSync();
   if (layout === 'design' && !designModeEnabled) void setDesignMode(true);
+  if (layout !== 'design' && designModeEnabled) void setDesignMode(false);
+  if ((layout === 'browser' || layout === 'design') && localhostPanels.size + browserPanels.size === 0) {
+    openBrowserMenu();
+  }
 }
 
 function openLayoutPicker(): void {
@@ -6194,22 +7194,28 @@ function openLayoutPicker(): void {
   if (!button) return;
   const menu = document.createElement('div');
   menu.className = 'file-context-menu layout-picker-menu';
+  menu.setAttribute('role', 'menu');
   const current = layoutState.workLayout ?? 'code';
-  menu.innerHTML = WORK_LAYOUTS.map((item) => `<button type="button" data-work-layout="${item.id}" class="${item.id === current ? 'is-selected' : ''}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.hint)}</small></span>${item.id === current ? '<em>ACTUAL</em>' : ''}</button>`).join('');
+  menu.innerHTML = WORK_LAYOUTS.map((item) => {
+    const selected = item.id === current;
+    return `<button type="button" role="menuitemradio" aria-checked="${selected}" data-work-layout="${item.id}" class="${selected ? 'is-selected' : ''}"><span><strong>${escapeHtml(t(item.labelKey))}</strong><small>${escapeHtml(t(item.hintKey))}</small></span>${selected ? `<em>${escapeHtml(t('chrome.splitCurrent'))}</em>` : ''}</button>`;
+  }).join('');
   document.body.appendChild(menu);
   const rect = button.getBoundingClientRect();
-  menu.style.minWidth = '260px';
-  menu.style.left = `${Math.max(12, rect.left + rect.width / 2 - 130)}px`;
+  menu.style.minWidth = '280px';
+  menu.style.left = `${Math.max(12, Math.min(rect.left + rect.width / 2 - 140, window.innerWidth - 292))}px`;
   menu.style.top = `${rect.bottom + 8}px`;
+  button.setAttribute('aria-expanded', 'true');
   const close = (): void => {
     menu.remove();
-    document.removeEventListener('pointerdown', outside);
+    button.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', outside, true);
   };
   const outside = (event: PointerEvent): void => {
     if (menu.contains(event.target as Node) || button.contains(event.target as Node)) return;
     close();
   };
-  document.addEventListener('pointerdown', outside);
+  window.setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
   menu.addEventListener('click', (event) => {
     const id = (event.target as HTMLElement).closest<HTMLElement>('[data-work-layout]')?.dataset.workLayout;
     if (!isWorkLayout(id)) return;
@@ -6223,30 +7229,107 @@ let nativeAgentRequestIdB: string | null = null;
 let nativeAgentBusyB = false;
 let nativeAgentStreamPreB: HTMLPreElement | null = null;
 
+function ensureSplitChatLabel(panel: HTMLElement, title: string, closable: boolean): void {
+  let label = panel.querySelector<HTMLElement>('.split-chat-label');
+  if (!label) {
+    label = document.createElement('div');
+    label.className = 'split-chat-label';
+    panel.prepend(label);
+  }
+  if (label.dataset.title === title && label.dataset.closable === String(closable)) return;
+  label.dataset.title = title;
+  label.dataset.closable = String(closable);
+  label.innerHTML = `<strong>${escapeHtml(title)}</strong>${closable
+    ? `<button type="button" class="icon-button split-chat-close" title="${escapeHtml(t('chrome.closeSplitChat'))}" aria-label="${escapeHtml(t('chrome.closeSplitChat'))}">${icons.close}</button>`
+    : ''}`;
+  label.querySelector('.split-chat-close')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setWorkLayout('code');
+  });
+}
+
+function clearSplitChatLabels(): void {
+  document.querySelectorAll('.split-chat-label').forEach((node) => node.remove());
+  document.querySelector('#dual-chat-resizer')?.remove();
+}
+
+function ensureDualChatResizer(split: HTMLElement, panelA: HTMLElement, panelB: HTMLElement): void {
+  let resizer = document.querySelector<HTMLElement>('#dual-chat-resizer');
+  if (!resizer) {
+    resizer = document.createElement('div');
+    resizer.id = 'dual-chat-resizer';
+    resizer.className = 'dual-chat-resizer';
+    resizer.setAttribute('role', 'separator');
+    resizer.setAttribute('aria-orientation', 'vertical');
+    resizer.setAttribute('aria-label', t('chrome.resizeSplitChat'));
+    resizer.tabIndex = 0;
+    let dragging = false;
+    const onMove = (event: PointerEvent): void => {
+      if (!dragging) return;
+      const rect = split.getBoundingClientRect();
+      if (rect.width < 80) return;
+      dualChatLeftRatio = Math.min(0.72, Math.max(0.28, (event.clientX - rect.left) / rect.width));
+      split.style.setProperty('--dual-left', `${(dualChatLeftRatio * 100).toFixed(2)}%`);
+    };
+    const onUp = (): void => {
+      if (!dragging) return;
+      dragging = false;
+      resizer?.classList.remove('is-dragging');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    resizer.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      dragging = true;
+      resizer?.classList.add('is-dragging');
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+  }
+  if (panelA.nextElementSibling !== resizer) panelA.after(resizer);
+  if (resizer.nextElementSibling !== panelB) resizer.after(panelB);
+  split.style.setProperty('--dual-left', `${(dualChatLeftRatio * 100).toFixed(2)}%`);
+}
+
 function ensureSecondComposer(): void {
-  if (document.querySelector('#native-agent-panel-b')) return;
+  const existing = document.querySelector<HTMLElement>('#native-agent-panel-b');
+  if (existing) {
+    syncSecondComposerProviders();
+    return;
+  }
   const source = document.querySelector<HTMLElement>('#native-agent-panel');
-  const rail = document.querySelector<HTMLElement>('#composer-rail');
-  if (!source || !rail) return;
+  const host = document.querySelector<HTMLElement>('#work-split')
+    ?? document.querySelector<HTMLElement>('#composer-rail')
+    ?? source?.parentElement
+    ?? null;
+  if (!source || !host) return;
   const clone = source.cloneNode(true) as HTMLElement;
   clone.id = 'native-agent-panel-b';
   clone.querySelectorAll('[id]').forEach((node) => {
     node.id = `${node.id}-b`;
   });
-  clone.classList.add('composer-column');
-  clone.classList.remove('composer-dock', 'has-thread', 'is-busy');
+  clone.classList.add('composer-column', 'composer-dock');
+  clone.classList.remove('has-thread', 'is-busy');
+  clone.hidden = false;
   clone.querySelector('#native-agent-log-b')?.replaceChildren();
-  clone.querySelector('#native-agent-model-b')?.setAttribute('hidden', '');
-  clone.querySelector('#native-agent-efforts-b')?.setAttribute('hidden', '');
+  clone.querySelector('#composer-files-changed-b')?.setAttribute('hidden', '');
+  clone.querySelector('#composer-git-bar-b')?.setAttribute('hidden', '');
+  clone.querySelector('#ai-context-bar-b')?.setAttribute('hidden', '');
+  clone.querySelector('#composer-captures-b')?.setAttribute('hidden', '');
   const inputB = clone.querySelector<HTMLTextAreaElement>('#native-agent-input-b');
   if (inputB) {
     inputB.value = '';
-    inputB.placeholder = 'Segundo chat';
+    inputB.placeholder = t('chrome.secondChat');
+    inputB.disabled = false;
   }
   const sourceProvider = source.querySelector<HTMLSelectElement>('#native-agent-provider');
   const destProvider = clone.querySelector<HTMLSelectElement>('#native-agent-provider-b');
-  if (sourceProvider && destProvider) destProvider.innerHTML = sourceProvider.innerHTML;
-  rail.appendChild(clone);
+  if (sourceProvider && destProvider) {
+    destProvider.innerHTML = sourceProvider.innerHTML;
+    destProvider.value = sourceProvider.value;
+  }
+  host.appendChild(clone);
   const form = clone.querySelector<HTMLFormElement>('#native-agent-form-b');
   const input = clone.querySelector<HTMLTextAreaElement>('#native-agent-input-b');
   const cancel = clone.querySelector<HTMLButtonElement>('#native-agent-cancel-b');
@@ -6254,7 +7337,18 @@ function ensureSecondComposer(): void {
     event.preventDefault();
     void sendNativeAgentMessageB();
   });
+  input?.addEventListener('input', () => {
+    const sendB = document.querySelector<HTMLButtonElement>('#native-agent-send-b');
+    if (sendB && !nativeAgentBusyB) sendB.hidden = !input.value.trim();
+    refreshSlashCommandMenu('b');
+  });
+  destProvider?.addEventListener('change', () => {
+    renderComposerAccountB();
+    renderComposerModelB();
+    refreshSlashCommandMenu('b');
+  });
   input?.addEventListener('keydown', (event) => {
+    if (handleComposerSlashKeydown(event, 'b')) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void sendNativeAgentMessageB();
@@ -6264,7 +7358,38 @@ function ensureSecondComposer(): void {
     if (nativeAgentRequestIdB) void invoke('agent_chat_cancel', { requestId: nativeAgentRequestIdB }).catch(() => undefined);
   });
   clone.querySelector('#composer-accounts-b')?.addEventListener('click', () => { void openAccountsModal(); });
-  clone.querySelector('#composer-hide-b')?.addEventListener('click', () => toggleComposer());
+  clone.querySelector('#composer-hide-b')?.addEventListener('click', () => {
+    setWorkLayout('code');
+  });
+  clone.querySelector('#composer-account-b')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (document.querySelector('.account-picker-menu')) {
+      closeAccountPicker();
+      return;
+    }
+    openAccountPicker('b');
+  });
+  clone.querySelector('#native-agent-model-b')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const modelBtn = clone.querySelector<HTMLButtonElement>('#native-agent-model-b');
+    if (modelBtn?.getAttribute('aria-expanded') === 'true') {
+      closeModelPicker();
+      return;
+    }
+    openModelPicker('b');
+  });
+  clone.querySelector('#native-agent-efforts-b')?.addEventListener('click', (event) => {
+    const effort = (event.target as HTMLElement).closest<HTMLElement>('[data-effort]')?.dataset.effort;
+    const provider = destProvider?.value;
+    const account = providerAccounts.find((item) => item.id === provider && item.connected);
+    const selected = selectedModelChoice(account);
+    if (!effort || !account || !selected || !selected.option.efforts.includes(effort)) return;
+    modelPickerSlot = 'b';
+    setSelectedChoice(account.id, selected.option.id, effort);
+  });
+  clone.querySelector('#composer-usage-b')?.addEventListener('click', () => { void openAccountsModal(); });
+  renderComposerAccountB();
+  renderComposerModelB();
 }
 
 function appendNativeAgentLineB(kind: string, text: string, heading?: string): HTMLDivElement {
@@ -6420,6 +7545,7 @@ let currentGitQueryRoot: string | null = null;
 let gitPanelError: string | null = null;
 let gitPanelBusy = false;
 let currentGitDiffStats: GitDiffStats | null = null;
+let composerFilesChangedExpanded = false;
 let currentGitWorktrees: GitWorktree[] = [];
 let currentGitWorktreeRoot: string | null = null;
 let currentGitWorktreeState: 'unknown' | 'ready' | 'unavailable' = 'unknown';
@@ -6492,7 +7618,7 @@ async function refreshFileTree(relative = fileTreeRelativePath): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) {
     filesBack.disabled = true;
-    fileTree.innerHTML = '<div class="dock-empty">Abre un workspace para ver sus archivos.</div>';
+    fileTree.innerHTML = '<div class="dock-empty">' + escapeHtml(t('chrome.openWorkspaceForFiles')) + '</div>';
     return;
   }
   const normalizedRelative = normalizedRelativePath(relative);
@@ -6560,7 +7686,7 @@ function isSameOrInsideFsPath(candidate: string, root: string): boolean {
 async function prepareEditorForRootChange(nextRoot: string | null): Promise<boolean> {
   if (!openFilePath) return true;
   if (openFileRoot && nextRoot && sameFsPath(openFileRoot, nextRoot)) return true;
-  if (openFileDirty && !(await askConfirm('Hay cambios sin guardar. ¿Descartarlos al cambiar de proyecto?', { title: 'Cambios sin guardar', confirmLabel: 'Descartar', danger: true }))) return false;
+  if (openFileDirty && !(await askConfirm(t('modal.unsavedSwitchProject'), { title: t('modal.unsavedTitle'), confirmLabel: t('modal.unsavedDiscard'), danger: true }))) return false;
   clearOpenFile();
   return true;
 }
@@ -6605,9 +7731,9 @@ async function createWorkspaceEntry(kind: 'file' | 'directory'): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) return;
   const name = await askPrompt(
-    kind === 'file' ? 'Nombre del nuevo archivo (ruta relativa):' : 'Nombre de la nueva carpeta (ruta relativa):',
+    kind === 'file' ? t('modal.newFilePrompt') : t('modal.newFolderPrompt'),
     fileTreeRelativePath ? fileTreeRelativePath + '/' : '',
-    { title: kind === 'file' ? 'Nuevo archivo' : 'Nueva carpeta', confirmLabel: 'Crear' },
+    { title: kind === 'file' ? t('modal.newFileTitle') : t('modal.newFolderTitle'), confirmLabel: t('modal.create') },
   );
   if (!name?.trim()) return;
   try {
@@ -6628,7 +7754,7 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
   menu.className = 'file-context-menu';
   menu.style.left = `${Math.min(event.clientX, window.innerWidth - 220)}px`;
   menu.style.top = `${Math.min(event.clientY, window.innerHeight - 180)}px`;
-  menu.innerHTML = '<button data-context-action="rename" type="button">Rename</button><button data-context-action="move" type="button">Move</button><button data-context-action="delete" type="button">Delete</button><button data-context-action="reveal" type="button">Reveal in Explorer</button><button data-context-action="copy" type="button">Copy relative path</button><button data-context-action="copy-absolute" type="button">Copy absolute path</button>';
+  menu.innerHTML = '<button data-context-action="rename" type="button">' + escapeHtml(t('chrome.ctxRename')) + '</button><button data-context-action="move" type="button">' + escapeHtml(t('chrome.ctxMove')) + '</button><button data-context-action="delete" type="button">' + escapeHtml(t('chrome.ctxDelete')) + '</button><button data-context-action="reveal" type="button">' + escapeHtml(t('chrome.ctxReveal')) + '</button><button data-context-action="copy" type="button">' + escapeHtml(t('chrome.ctxCopyRelative')) + '</button><button data-context-action="copy-absolute" type="button">' + escapeHtml(t('chrome.ctxCopyAbsolute')) + '</button>';
   document.body.appendChild(menu);
   const close = (): void => { menu.remove(); document.removeEventListener('pointerdown', outside); };
   const outside = (pointerEvent: PointerEvent): void => { if (!menu.contains(pointerEvent.target as Node)) close(); };
@@ -6639,7 +7765,7 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
     try {
       if (action === 'rename') {
         const current = relative.split(/[\\/]/).pop() ?? relative;
-        const next = await askPrompt('Nuevo nombre:', current, { title: 'Renombrar', confirmLabel: 'Renombrar' });
+        const next = await askPrompt(t('modal.renamePrompt'), current, { title: t('modal.renameTitle'), confirmLabel: t('modal.renameConfirm') });
         if (next?.trim()) {
           const normalizedSource = normalizedRelativePath(relative);
           const parent = normalizedSource.includes('/') ? normalizedSource.slice(0, normalizedSource.lastIndexOf('/') + 1) : '';
@@ -6649,7 +7775,7 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
           if (remapped) updateOpenFilePath(remapped);
         }
       } else if (action === 'move') {
-        const destination = await askPrompt('Ruta relativa de destino (incluye el nombre):', relative, { title: 'Mover', confirmLabel: 'Mover' });
+        const destination = await askPrompt(t('modal.movePrompt'), relative, { title: t('modal.moveTitle'), confirmLabel: t('modal.moveConfirm') });
         if (destination?.trim()) {
           const nextPath = destination.trim();
           await invoke('move_path', { root: activeProjectRoot() ?? workspace.path, relative, destination: nextPath });
@@ -6657,7 +7783,7 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
           if (remapped) updateOpenFilePath(remapped);
         }
       } else if (action === 'delete') {
-        if (!(await askConfirm('Esto eliminará el elemento real del disco. ¿Continuar?', { title: 'Eliminar', confirmLabel: 'Eliminar', danger: true }))) return;
+        if (!(await askConfirm(t('modal.deleteConfirm'), { title: t('modal.deleteTitle'), confirmLabel: t('modal.deleteAction'), danger: true }))) return;
         await invoke('delete', { root: activeProjectRoot() ?? workspace.path, relative });
         if (isSameOrInsideRelativePath(openFilePath, relative)) clearOpenFile();
       } else if (action === 'reveal') {
@@ -6681,7 +7807,7 @@ async function openWorkspaceFile(relative: string, options?: { fromAgent?: boole
   const workspace = getWorkspace();
   if (!workspace) return;
   syncCurrentOpenFileTab();
-  if (openFileDirty && !options?.fromAgent && !(await askConfirm('Hay cambios sin guardar. ¿Abrir otro archivo?', { title: 'Cambios sin guardar', confirmLabel: 'Descartar', danger: true }))) return;
+  if (openFileDirty && !options?.fromAgent && !(await askConfirm(t('modal.unsavedOpenOther'), { title: t('modal.unsavedTitle'), confirmLabel: t('modal.unsavedDiscard'), danger: true }))) return;
   const requestId = ++fileOpenRequest;
   const workspaceId = workspace.id;
   const root = activeProjectRoot() ?? workspace.path;
@@ -6755,7 +7881,7 @@ async function closeFileTab(path: string, rootHint?: string): Promise<void> {
   if (index < 0) return;
   syncCurrentOpenFileTab();
   const tab = openFileTabs[index];
-  if (tab.dirty && !(await askConfirm('Hay cambios sin guardar en este archivo. ¿Cerrar la pestaña?', { title: 'Cambios sin guardar', confirmLabel: 'Cerrar pestaña', danger: true }))) return;
+  if (tab.dirty && !(await askConfirm(t('modal.unsavedCloseTab'), { title: t('modal.unsavedTitle'), confirmLabel: t('modal.closeTab'), danger: true }))) return;
   const wasActive = Boolean(openFilePath && openFileRoot && sameFsPath(openFileRoot, tab.root) && relativePathKey(openFilePath) === relativePathKey(tab.path));
   openFileTabs.splice(index, 1);
   if (!openFileTabs.length) {
@@ -6791,6 +7917,7 @@ async function saveWorkspaceFile(): Promise<void> {
     renderEditorTabs();
     saveWorkspaceLayout({ openFilePath: path, openFilePaths: openFileTabs.map((item) => item.path).slice(-24) });
     window.setTimeout(() => { if (!openFileDirty) editorSaveStatus.textContent = 'CLEAN'; }, 1400);
+    void refreshGitPanel();
   } catch (error) {
     showToast(t('toast.saveFileFail', { error: String(error) }), true);
   }
@@ -6832,7 +7959,7 @@ async function ensureGitAvailable(): Promise<boolean> {
   if (gitInstallPrompted) return false;
 
   gitInstallPrompted = true;
-  if (!(await askConfirm('Git no está instalado en este PC. ComesADE puede instalar Git mediante el instalador oficial. ¿Continuar?', { title: 'Instalar Git', confirmLabel: 'Instalar' }))) {
+  if (!(await askConfirm(t('modal.installGitCopy'), { title: t('modal.installGitTitle'), confirmLabel: t('modal.installGitConfirm') }))) {
     gitInstallPrompted = false;
     return false;
   }
@@ -6927,7 +8054,7 @@ async function refreshGitPanel(): Promise<void> {
     currentGitWorktreeState = 'unavailable';
     gitBranch.textContent = '';
     gitList.innerHTML = '<div class="dock-empty">' + escapeHtml(t('chrome.gitMissing')) + '</div>';
-    gitWorktreeList.innerHTML = '<div class="dock-empty">Git no esta disponible.</div>';
+    gitWorktreeList.innerHTML = '<div class="dock-empty">' + escapeHtml(t('chrome.gitUnavailable')) + '</div>';
     setDiffMessage('Instala Git para ver diffs reales.');
     renderInspectorPanels();
     renderAsaOverview();
@@ -6962,8 +8089,8 @@ async function refreshGitPanel(): Promise<void> {
     gitBranch.textContent = '';
     updateStatusbar();
     gitList.innerHTML = '<div class="dock-empty">' + escapeHtml(t('chrome.noGitRepo')) + (lastError ? ': ' + escapeHtml(lastError) : '') + '</div>';
-    gitWorktreeList.innerHTML = '<div class="dock-empty">No hay worktrees disponibles.</div>';
-    setDiffMessage('Git no esta disponible para este workspace.');
+    gitWorktreeList.innerHTML = '<div class="dock-empty">' + escapeHtml(t('chrome.noWorktrees')) + '</div>';
+    setDiffMessage(t('toast.gitUnavailableWorkspace'));
     renderInspectorPanels();
     renderAsaOverview();
     renderComposerGitChrome();
@@ -6985,6 +8112,35 @@ async function refreshGitPanel(): Promise<void> {
   renderComposerGitChrome();
 }
 
+function composerChangedFileRows(): GitFileDiffStat[] {
+  const byPath = new Map<string, GitFileDiffStat>();
+  for (const file of currentGitDiffStats?.files ?? []) {
+    const path = file.path.trim();
+    if (!path) continue;
+    byPath.set(relativePathKey(path), {
+      path,
+      additions: Number(file.additions ?? 0),
+      deletions: Number(file.deletions ?? 0),
+    });
+  }
+  for (const entry of currentGitStatus?.entries ?? []) {
+    const path = entry.path.trim();
+    if (!path) continue;
+    const key = relativePathKey(path);
+    if (byPath.has(key)) continue;
+    byPath.set(key, { path, additions: 0, deletions: 0 });
+  }
+  return Array.from(byPath.values()).sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function openComposerGitReview(path?: string): void {
+  inspectorCollapsed = false;
+  layoutState.inspectorCollapsed = false;
+  setInspectorTab('git');
+  applyLayout();
+  if (path) void loadGitDiff(path);
+}
+
 function renderComposerGitChrome(): void {
   const bar = document.querySelector<HTMLElement>('#composer-git-bar');
   const changes = document.querySelector<HTMLButtonElement>('#composer-changes');
@@ -6993,20 +8149,34 @@ function renderComposerGitChrome(): void {
   const add = document.querySelector('#composer-git-add');
   const del = document.querySelector('#composer-git-del');
   const branchLabel = document.querySelector('#composer-git-branch-label');
+  const filesPanel = document.querySelector<HTMLElement>('#composer-files-changed');
+  const filesToggle = document.querySelector<HTMLButtonElement>('#composer-files-changed-toggle');
+  const filesTitle = document.querySelector('#composer-files-changed-title');
+  const filesAdd = document.querySelector('#composer-files-changed-add');
+  const filesDel = document.querySelector('#composer-files-changed-del');
+  const filesList = document.querySelector<HTMLElement>('#composer-files-changed-list');
   const branch = currentGitStatus?.branch?.trim() || '';
   if (branchLabel) branchLabel.textContent = branch;
   if (branchButton) {
     branchButton.hidden = !branch;
     branchButton.title = branch ? t('chrome.branchTitle', { branch }) : '';
   }
-  const additions = Number(currentGitDiffStats?.additions ?? 0);
-  const deletions = Number(currentGitDiffStats?.deletions ?? 0);
-  const dirty = Boolean(currentGitStatus) && (additions > 0 || deletions > 0 || (currentGitStatus?.entries.length ?? 0) > 0);
+  const fileRows = composerChangedFileRows();
+  const additions = Number(currentGitDiffStats?.additions ?? fileRows.reduce((sum, file) => sum + file.additions, 0));
+  const deletions = Number(currentGitDiffStats?.deletions ?? fileRows.reduce((sum, file) => sum + file.deletions, 0));
+  const dirty = Boolean(currentGitStatus) && (additions > 0 || deletions > 0 || fileRows.length > 0);
   if (add) add.textContent = `+${additions}`;
-  if (del) del.textContent = `-${deletions}`;
-  if (changes) changes.hidden = !dirty;
+  if (del) del.textContent = `−${deletions}`;
+  if (changes) changes.hidden = true;
   if (commit) commit.hidden = !dirty;
   if (bar) bar.hidden = !dirty;
+  if (filesPanel && filesToggle && filesList) {
+    // El resumen de cambios del agente va al final del chat; este strip del composer se oculta.
+    filesPanel.hidden = true;
+    filesList.hidden = true;
+    filesList.innerHTML = '';
+  }
+  renderAiContextBar();
 }
 
 function suggestedAgentBranch(): string {
@@ -7073,7 +8243,7 @@ async function refreshWorktrees(): Promise<void> {
       const main = sameFsPath(worktree.path, workspace.path);
       const owner = sessions.find((session) => session.worktree ? sameFsPath(session.worktree, worktree.path) : false);
       const label = worktree.branch || (worktree.detached ? 'detached' : worktree.head.slice(0, 8));
-      return '<div class="git-worktree-row"><span class="git-worktree-dot"></span><span class="git-worktree-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(worktree.path) + (owner ? ' · ' + escapeHtml(owner.name) : '') + '</small></span>' + (main ? '<em>MAIN</em>' : '<button class="git-action git-action-danger" data-remove-worktree="' + escapeHtml(worktree.path) + '" type="button">Remove</button>') + '</div>';
+      return '<div class="git-worktree-row"><span class="git-worktree-dot"></span><span class="git-worktree-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(worktree.path) + (owner ? ' · ' + escapeHtml(owner.name) : '') + '</small></span>' + (main ? '<em>MAIN</em>' : '<button class="git-action git-action-danger" data-remove-worktree="' + escapeHtml(worktree.path) + '" type="button">' + escapeHtml(t('chrome.remove')) + '</button>') + '</div>';
     }).join('');
     const rows: HTMLElement[] = Array.from(gitWorktreeList.querySelectorAll('.git-worktree-row')) as HTMLElement[];
     worktrees.forEach((worktree, index) => {
@@ -7084,13 +8254,13 @@ async function refreshWorktrees(): Promise<void> {
       const review = document.createElement('button');
       review.className = 'git-action';
       review.type = 'button';
-      review.textContent = 'Review';
+      review.textContent = t('chrome.review');
       review.dataset.worktreeDiff = worktree.path;
       review.dataset.worktreeBranch = worktree.branch;
       const merge = document.createElement('button');
       merge.className = 'git-action';
       merge.type = 'button';
-      merge.textContent = 'Merge';
+      merge.textContent = t('chrome.merge');
       merge.dataset.mergeWorktree = worktree.branch;
       merge.dataset.mergeWorktreePath = worktree.path;
       const remove = row.querySelector('[data-remove-worktree]') as HTMLElement | null;
@@ -7107,7 +8277,7 @@ async function refreshWorktrees(): Promise<void> {
     currentGitWorktrees = [];
     currentGitWorktreeRoot = workspace.path;
     currentGitWorktreeState = 'unavailable';
-    gitWorktreeList.innerHTML = '<div class="dock-empty">No es un repositorio Git.</div>';
+    gitWorktreeList.innerHTML = '<div class="dock-empty">' + escapeHtml(t('chrome.notGitRepo')) + '</div>';
     renderAsaOverview();
   }
 }
@@ -7208,14 +8378,16 @@ window.addEventListener('comesade-workspace-changed', scheduleWorkspacePanelRefr
 
 function renderWorkspaceList(): void {
   if (!workspaces.length) {
-    workspaceList.innerHTML = '<div class="workspace-list-empty">No hay workspaces guardados.</div>';
+    workspaceList.innerHTML = '<div class="workspace-list-empty">' + escapeHtml(t('chrome.noWorkspacesSaved')) + '</div>';
     return;
   }
   workspaceList.innerHTML = workspaces.map((workspace) => {
     const active = workspace.id === activeWorkspaceId;
     const count = sessions.filter((session) => sessionBelongsToWorkspace(session, workspace)).length;
     const badgeHtml = count > 0 ? `<span class="session-badge">${count}</span>` : '';
-    return `<div class="workspace-list-row${active ? ' is-active' : ''}"><button class="workspace-list-item ${active ? 'workspace-list-item-active' : ''}" data-sidebar-workspace="${escapeHtml(workspace.id)}" type="button"><span class="workspace-list-dot"></span><span class="workspace-list-copy"><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span>${badgeHtml}</button>${workspaceManageButtonHtml(workspace.id)}</div>`;
+    const hasRepo = Boolean(workspace.repository?.trim());
+    // En el sidebar no cabe el CTA ancho; conectar va en el menú … (workspace-list-manage).
+    return `<div class="workspace-list-row${active ? ' is-active' : ''}${hasRepo ? '' : ' is-missing-repo'}"><button class="workspace-list-item ${active ? 'workspace-list-item-active' : ''}" data-sidebar-workspace="${escapeHtml(workspace.id)}" type="button"><span class="workspace-list-dot"></span><span class="workspace-list-copy"><strong>${escapeHtml(workspace.name)}</strong><small class="workspace-repo-label">${escapeHtml(workspaceRepoLabel(workspace))}</small><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span>${badgeHtml}</button>${workspaceManageButtonHtml(workspace.id)}</div>`;
   }).join('');
 }
 
@@ -7761,7 +8933,7 @@ function handleExit(payload: TerminalExit): void {
   terminalInputBuffers.delete(payload.sessionId);
   sessionActivities.set(payload.sessionId, payload.exitCode === 0 ? 'finished' : payload.exitCode === null ? 'stopped' : 'error');
   const instance = terminals.get(payload.sessionId);
-  if (instance) queueTerminalOutput(payload.sessionId, '\r\n\x1b[33m[ComesADE] El shell finalizó.\x1b[0m\r\n');
+  if (instance) queueTerminalOutput(payload.sessionId, '\r\n\x1b[33m' + t('chrome.shellExited') + '\x1b[0m\r\n');
   instance?.surface.classList.add('terminal-view-exited');
   updateTerminalHeaderState(payload.sessionId);
   scheduleRender();
@@ -7813,7 +8985,7 @@ async function openSessionDetails(session: SessionInfo): Promise<void> {
   let statsError = '';
   try {
     const repository = await invoke<{ branch: string; isRepository: boolean }>('repository_info', { path: root });
-    branch = repository.isRepository ? (repository.branch || 'DETACHED') : 'No es un repositorio Git';
+    branch = repository.isRepository ? (repository.branch || 'DETACHED') : t('chrome.notGitRepoBranch');
   } catch (error) {
     branch = 'No disponible: ' + String(error);
   }
@@ -7888,7 +9060,7 @@ function openSessionContextMenu(event: MouseEvent, sessionId: string): void {
         if (firstChange) await loadGitDiff(firstChange);
         else showToast(t('toast.noGitChanges'));
       } else if (action === 'remove') {
-        if (!(await askConfirm('Esto cerrará el proceso real y quitará su definición guardada. ¿Continuar?', { title: 'Cerrar sesión', confirmLabel: 'Cerrar', danger: true }))) return;
+        if (!(await askConfirm(t('modal.closeSessionCopy'), { title: t('modal.closeSessionTitle'), confirmLabel: t('modal.closeSessionConfirm'), danger: true }))) return;
         if (await closeSession(session.id)) removeSessionDefinition(session);
         render();
       }
@@ -8004,7 +9176,7 @@ function openInspectorActionsMenu(): void {
   menu.className = 'file-context-menu inspector-context-menu';
   menu.style.right = `${Math.max(8, window.innerWidth - (rect?.right ?? window.innerWidth - 12))}px`;
   menu.style.top = `${Math.min(window.innerHeight - 180, (rect?.bottom ?? 42) + 6)}px`;
-  menu.innerHTML = '<button data-inspector-action="new-file" type="button">New file</button><button data-inspector-action="new-folder" type="button">New folder</button><button data-inspector-action="refresh" type="button">Refresh files</button><button data-inspector-action="reveal" type="button">Reveal workspace</button><button data-inspector-action="search" type="button">Search project</button>';
+  menu.innerHTML = '<button data-inspector-action="new-file" type="button">' + escapeHtml(t('chrome.newFile')) + '</button><button data-inspector-action="new-folder" type="button">' + escapeHtml(t('chrome.newFolder')) + '</button><button data-inspector-action="refresh" type="button">' + escapeHtml(t('chrome.refreshFiles')) + '</button><button data-inspector-action="reveal" type="button">' + escapeHtml(t('chrome.revealWorkspace')) + '</button><button data-inspector-action="search" type="button">' + escapeHtml(t('chrome.searchProject')) + '</button>';
   document.body.appendChild(menu);
   const close = (): void => { menu.remove(); document.removeEventListener('pointerdown', outside); };
   const outside = (event: PointerEvent): void => { if (!menu.contains(event.target as Node) && event.target !== button) close(); };
@@ -8551,7 +9723,7 @@ function openWorkspaceModal(returnToMenu = true, enterAfter = false): void {
     void ensureSignedInForDesktop();
     return;
   }
-  modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-modal-backdrop"><form class="modal-panel" id="workspace-form"><div class="modal-heading"><div><span class="eyebrow">GITHUB / REPOSITORIO</span><h2>${escapeHtml(t('menu.create'))}</h2></div><button class="modal-close" id="workspace-modal-close" type="button">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.createGithubCopy'))}</p><label class="field-label" for="workspace-name-input">${escapeHtml(t('menu.createName'))}</label><input class="field-input" id="workspace-name-input" placeholder="mi-proyecto" required/><label class="field-check" for="workspace-github-create"><input id="workspace-github-create" type="checkbox" checked/><span>${escapeHtml(t('menu.createOnGithub'))}</span></label><label class="field-label" for="workspace-path-input">${escapeHtml(t('menu.createLocalFolder'))}</label><input class="field-input" id="workspace-path-input" placeholder="${escapeHtml(t('menu.createLocalPlaceholder'))}"/><div class="modal-actions"><button class="secondary-button" id="workspace-modal-cancel" type="button">${escapeHtml(t('common.cancel'))}</button><button class="primary-button" type="submit">${icons.github}<span>${escapeHtml(t('menu.create'))}</span></button></div></form></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-modal-backdrop"><form class="modal-panel" id="workspace-form"><div class="modal-heading"><div><span class="eyebrow">GITHUB / REPOSITORIO</span><h2>${escapeHtml(t('menu.create'))}</h2></div><button class="modal-close" id="workspace-modal-close" type="button">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.createGithubCopy'))}</p><label class="field-label" for="workspace-name-input">${escapeHtml(t('menu.createName'))}</label><input class="field-input" id="workspace-name-input" placeholder="mi-proyecto" required/><label class="field-label" for="workspace-path-input">${escapeHtml(t('menu.createLocalFolder'))}</label><input class="field-input" id="workspace-path-input" placeholder="${escapeHtml(t('menu.createLocalPlaceholder'))}"/><div class="modal-actions"><button class="secondary-button" id="workspace-modal-cancel" type="button">${escapeHtml(t('common.cancel'))}</button><button class="primary-button" type="submit">${icons.github}<span>${escapeHtml(t('menu.create'))}</span></button></div></form></div>`;
   const close = (): void => { modalRoot.innerHTML = ''; if (returnToMenu) openMainMenu(); };
   document.querySelector<HTMLButtonElement>('#workspace-modal-close')!.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#workspace-modal-cancel')!.addEventListener('click', close);
@@ -8560,53 +9732,32 @@ function openWorkspaceModal(returnToMenu = true, enterAfter = false): void {
     const name = document.querySelector<HTMLInputElement>('#workspace-name-input')!.value.trim();
     const requestedPath = document.querySelector<HTMLInputElement>('#workspace-path-input')!.value.trim();
     try {
-      const createOnGithub = document.querySelector<HTMLInputElement>('#workspace-github-create')?.checked ?? true;
       if (!(await ensureSignedInForDesktop())) return;
-      if (createOnGithub) {
-        if (!githubAuth.connected) {
-          showToast(t('menu.githubNeedAccount'), true);
-          void connectGithubAccount();
-          return;
-        }
-        if (!(await ensureGitAvailable())) return;
-        const repository = await invoke<GithubRepository>('github_create_repository', {
-          clientId: GITHUB_CLIENT_ID,
-          name,
-          private: true,
-          description: null,
-        });
-        const basePath = requestedPath
-          ? await invoke<string>('validate_workspace_path', { path: requestedPath })
-          : await invoke<string>('default_workspace_path');
-        const destination = joinWorkspacePath(basePath, repository.name);
-        await invoke<string>('github_clone_repository', {
-          clientId: GITHUB_CLIENT_ID,
-          repository: repository.fullName,
-          destination,
-        });
-        githubRepositoriesLoaded = false;
-        modalRoot.innerHTML = '';
-        await registerWorkspaceFromPath(destination, enterAfter);
-        showToast(t('toast.githubCreatedCloned', { name: repository.fullName }));
+      if (!githubAuth.connected) {
+        showToast(t('menu.githubNeedAccount'), true);
+        void connectGithubAccount();
         return;
       }
-      const path = requestedPath ? await invoke<string>('validate_workspace_path', { path: requestedPath }) : await invoke<string>('default_workspace_path');
-      if (!(await prepareEditorForRootChange(path))) return;
-      const workspace: WorkspaceInfo = { id: `workspace-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`, name, path, createdAt: new Date().toISOString() };
-      closeAllTools(false);
-      saveLayout();
-      workspaces.unshift(workspace);
-      activeWorkspaceId = workspace.id;
-      loadSessionDefinitions();
-      saveWorkspaces();
-      await startWorkspaceWatcher(workspace.path);
-      await syncRuntimeSessions();
-      updateWorkspaceView();
-      render();
+      if (!(await ensureGitAvailable())) return;
+      const repository = await invoke<GithubRepository>('github_create_repository', {
+        clientId: GITHUB_CLIENT_ID,
+        name,
+        private: true,
+        description: null,
+      });
+      const basePath = requestedPath
+        ? await invoke<string>('validate_workspace_path', { path: requestedPath })
+        : await invoke<string>('default_workspace_path');
+      const destination = joinWorkspacePath(basePath, repository.name);
+      await invoke<string>('github_clone_repository', {
+        clientId: GITHUB_CLIENT_ID,
+        repository: repository.fullName,
+        destination,
+      });
+      githubRepositoriesLoaded = false;
       modalRoot.innerHTML = '';
-      if (enterAfter) enterWorkspace();
-      else if (returnToMenu || !hasActiveSubscription()) openMainMenu();
-      showToast(t('toast.workspaceReady', { name }));
+      await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
+      showToast(t('toast.githubCreatedCloned', { name: repository.fullName }));
     } catch (error) {
       showToast(String(error), true);
     }
@@ -8702,7 +9853,7 @@ function openCloneRepositoryModal(returnToMenu = true, enterAfter = true): void 
         await invoke<string>('clone_repository', { url, destination });
       }
       modalRoot.innerHTML = '';
-      await registerWorkspaceFromPath(destination, enterAfter);
+      await registerWorkspaceFromPath(destination, enterAfter, selectedRepository?.fullName ?? null);
       showToast(t('toast.cloneOk'));
     } catch (error) {
       if (submit) submit.disabled = false;
@@ -9056,11 +10207,70 @@ async function closeSettingsAccount(button: HTMLButtonElement): Promise<void> {
   }
 }
 
+function workspaceRepoLabel(workspace: WorkspaceInfo): string {
+  return workspace.repository?.trim() || t('menu.noRepo');
+}
+
+function workspacesSharingPath(path: string): WorkspaceInfo[] {
+  return workspaces.filter((item) => sameFsPath(item.path, path));
+}
+
+function workspacePathIsShared(workspace: WorkspaceInfo): boolean {
+  return workspacesSharingPath(workspace.path).length > 1;
+}
+
+/** Si varias workspaces comparten carpeta y el mismo repo (bug de backfill), deja solo una. */
+function dedupeSharedPathRepositories(keepId?: string | null): boolean {
+  let changed = false;
+  const seen = new Set<string>();
+  for (const workspace of workspaces) {
+    const key = relativePathKey(workspace.path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const group = workspacesSharingPath(workspace.path);
+    if (group.length < 2) continue;
+    const linked = group.filter((item) => item.repository?.trim());
+    if (linked.length < 2) continue;
+    const repos = new Set(linked.map((item) => item.repository!.trim().toLowerCase()));
+    if (repos.size !== 1) continue;
+    const keep = linked.find((item) => item.id === keepId)
+      ?? linked.find((item) => item.id === activeWorkspaceId)
+      ?? linked[0];
+    for (const item of linked) {
+      if (item.id === keep.id) continue;
+      item.repository = null;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+async function backfillWorkspaceRepositories(): Promise<void> {
+  let changed = dedupeSharedPathRepositories();
+  for (const workspace of workspaces) {
+    if (workspace.repository?.trim()) continue;
+    // Carpetas compartidas: el origin de Git no es por-workspace; hay que vincular a mano.
+    if (workspacePathIsShared(workspace)) continue;
+    const remote = await detectWorkspaceGithubRepository(workspace.path);
+    if (!remote) continue;
+    workspace.repository = remote;
+    changed = true;
+  }
+  if (!changed) return;
+  saveWorkspaces();
+  refreshSavedWorkspaceSurfaces();
+}
+
 function workspaceMenuListHtml(): string {
   if (!workspaces.length) return `<div class="workspace-list-empty">${escapeHtml(t('menu.emptyList'))}</div>`;
   return workspaces.map((workspace) => {
     const active = workspace.id === activeWorkspaceId;
-    return `<div class="workspace-list-row${active ? ' is-active' : ''}"><button class="workspace-list-item ${active ? 'workspace-list-item-active' : ''}" data-workspace-id="${escapeHtml(workspace.id)}" type="button"><span class="panel-icon panel-icon-gray">${icons.folder}</span><span><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span>${active ? `<span class="workspace-list-active">${escapeHtml(t('menu.active'))}</span>` : ''}</button>${workspaceManageButtonHtml(workspace.id)}</div>`;
+    const repo = workspaceRepoLabel(workspace);
+    const hasRepo = Boolean(workspace.repository?.trim());
+    const connect = hasRepo
+      ? ''
+      : `<button class="workspace-repo-connect" type="button" data-workspace-connect-repo="${escapeHtml(workspace.id)}" title="${escapeHtml(t('menu.connectRepoHint'))}">${escapeHtml(t('menu.connectRepo'))}</button>`;
+    return `<div class="workspace-list-row${active ? ' is-active' : ''}${hasRepo ? '' : ' is-missing-repo'}"><button class="workspace-list-item ${active ? 'workspace-list-item-active' : ''}" data-workspace-id="${escapeHtml(workspace.id)}" type="button"><span class="panel-icon panel-icon-gray">${icons.github}</span><span><strong>${escapeHtml(workspace.name)}</strong><small class="workspace-repo-label">${escapeHtml(repo)}</small><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span>${active ? `<span class="workspace-list-active">${escapeHtml(t('menu.active'))}</span>` : ''}</button>${connect}${workspaceManageButtonHtml(workspace.id)}</div>`;
   }).join('');
 }
 
@@ -9083,8 +10293,8 @@ function openMainMenu(): void {
   const workspaceCount = workspaces.length === 1 ? t('menu.savedOne') : t('menu.savedMany', { count: workspaces.length });
   const runtimeState = connectionState.textContent?.trim() || 'LOCAL / STARTING';
   const currentWorkspace = workspace
-    ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="${escapeHtml(workspace.name)}"><span class="panel-icon panel-icon-orange">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(workspace.name)}</strong><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span><span class="main-menu-workspace-state"><i></i><span>${escapeHtml(t('menu.enterDesktop'))}</span></span></button>`
-    : `<div class="main-menu-current main-menu-current-empty"><span class="panel-icon panel-icon-gray">${icons.folder}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(t('menu.noneSelected'))}</strong><small>${escapeHtml(t('menu.noneHint'))}</small></span><span class="main-menu-workspace-state"><i class="is-empty"></i><span>${escapeHtml(t('menu.notSelected'))}</span></span></div>`;
+    ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="${escapeHtml(workspace.name)}"><span class="panel-icon panel-icon-orange">${icons.github}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(workspace.name)}</strong><small class="workspace-repo-label">${escapeHtml(workspaceRepoLabel(workspace))}</small><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span><span class="main-menu-workspace-state"><i></i><span>${escapeHtml(t('menu.enterDesktop'))}</span></span></button>`
+    : `<div class="main-menu-current main-menu-current-empty"><span class="panel-icon panel-icon-gray">${icons.github}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(t('menu.noneSelected'))}</strong><small>${escapeHtml(t('menu.noneHint'))}</small></span><span class="main-menu-workspace-state"><i class="is-empty"></i><span>${escapeHtml(t('menu.notSelected'))}</span></span></div>`;
   modalRoot.innerHTML = `<div class="modal-backdrop main-menu-backdrop" id="main-menu-backdrop" role="dialog" aria-modal="true" aria-labelledby="main-menu-title" aria-describedby="main-menu-copy">
     <section class="main-menu-panel">
       <header class="main-menu-topline">
@@ -9108,7 +10318,7 @@ function openMainMenu(): void {
             <div class="main-menu-section-heading"><span>${escapeHtml(t('menu.workspace'))}</span><small>${escapeHtml(workspaceCount)}</small></div>
             ${currentWorkspace}
             <div class="workspace-browser-picker main-menu-picker">
-              <button class="secondary-button" id="main-menu-pick" type="button">${icons.folder}<span>${escapeHtml(t('menu.pickFolder'))}</span></button>
+              <button class="secondary-button" id="main-menu-connect-github" type="button">${icons.github}<span>${escapeHtml(t('menu.pickFolder'))}</span></button>
               <small>${escapeHtml(t('menu.pickHint'))}</small>
             </div>
             <div class="workspace-list-modal main-menu-workspace-shelf" id="main-menu-workspace-list">${workspaceMenuListHtml()}</div>
@@ -9142,8 +10352,8 @@ function openMainMenu(): void {
     const current = getWorkspace();
     if (current) void activateWorkspace(current, true);
   });
-  document.querySelector<HTMLButtonElement>('#main-menu-pick')?.addEventListener('click', () => {
-    void pickAndOpenWorkspace(true, true);
+  document.querySelector<HTMLButtonElement>('#main-menu-connect-github')?.addEventListener('click', () => {
+    void openConnectGithubRepositoryFromMenu();
   });
   const menuList = document.querySelector<HTMLElement>('#main-menu-workspace-list');
   if (menuList) bindMainMenuWorkspaceList(menuList);
@@ -9163,7 +10373,103 @@ function openMainMenu(): void {
   document.querySelector<HTMLButtonElement>('#main-menu-create')?.addEventListener('click', () => openWorkspaceModal(true, true));
   document.querySelector<HTMLButtonElement>('#main-menu-clone')?.addEventListener('click', () => openCloneRepositoryModal(true, true));
   document.querySelector<HTMLButtonElement>('#main-menu-settings')?.addEventListener('click', openSettingsModal);
-  (document.querySelector<HTMLButtonElement>('#main-menu-current') ?? document.querySelector<HTMLButtonElement>('#main-menu-pick'))?.focus();
+  (document.querySelector<HTMLButtonElement>('#main-menu-current') ?? document.querySelector<HTMLButtonElement>('#main-menu-connect-github'))?.focus();
+  void backfillWorkspaceRepositories();
+}
+
+async function openLinkGithubRepoToWorkspace(workspaceId: string, returnToMenu = true): Promise<void> {
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return;
+  if (!hasActiveSubscription()) {
+    void ensureSignedInForDesktop();
+    return;
+  }
+  if (!githubAuth.connected) {
+    await connectGithubAccount();
+    if (!githubAuth.connected) return;
+  }
+  await loadGithubRepositories(true);
+  let selectedRepository: GithubRepository | null = null;
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="link-repo-backdrop"><section class="modal-panel clone-modal" id="link-repo-panel"><div class="modal-heading"><div><span class="eyebrow">${tx('modal.gitGithub')}</span><h2>${escapeHtml(t('menu.connectRepoTitle'))}</h2></div><button class="modal-close" id="link-repo-close" type="button">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.connectRepoCopy', { name: workspace.name }))}</p><section class="github-repository-picker"><div class="github-repository-heading"><div><span class="eyebrow">${tx('modal.githubRepos')}</span><strong>${tx('modal.availableRepos')}</strong><small id="link-repo-account">${escapeHtml(githubAuth.login ? `@${githubAuth.login}` : t('menu.githubNeedAccount'))}</small></div><button class="secondary-button" id="link-repo-refresh" type="button">${tx('modal.refresh')}</button></div><input class="field-input" id="link-repo-search" type="search" placeholder="${tx('modal.filterGithubPh')}" autocomplete="off"/><div class="github-repository-list" id="link-repo-list" role="listbox">${githubRepositoryRowsHtml()}</div><div class="github-repository-selection" id="link-repo-selection" hidden></div></section><div class="modal-actions"><button class="secondary-button" id="link-repo-cancel" type="button">${tx('common.cancel')}</button><button class="primary-button" id="link-repo-confirm" type="button" disabled>${icons.github}<span>${escapeHtml(t('menu.connectRepo'))}</span></button></div></section></div>`;
+  const search = document.querySelector<HTMLInputElement>('#link-repo-search')!;
+  const list = document.querySelector<HTMLElement>('#link-repo-list')!;
+  const selection = document.querySelector<HTMLElement>('#link-repo-selection')!;
+  const confirm = document.querySelector<HTMLButtonElement>('#link-repo-confirm')!;
+  const renderSelection = (): void => {
+    list.innerHTML = githubRepositoryRowsHtml(search.value, selectedRepository?.fullName ?? '');
+    confirm.disabled = !selectedRepository;
+    if (!selectedRepository) {
+      selection.hidden = true;
+      selection.textContent = '';
+      return;
+    }
+    selection.hidden = false;
+    selection.innerHTML = `<strong>${tx('modal.selectedRepo')}</strong><span>${escapeHtml(selectedRepository.fullName)}</span>`;
+  };
+  const close = (): void => {
+    modalRoot.innerHTML = '';
+    if (returnToMenu) openMainMenu();
+    else refreshSavedWorkspaceSurfaces();
+  };
+  document.querySelector('#link-repo-close')?.addEventListener('click', close);
+  document.querySelector('#link-repo-cancel')?.addEventListener('click', close);
+  document.querySelector('#link-repo-refresh')?.addEventListener('click', () => {
+    void loadGithubRepositories(true).then(() => renderSelection());
+  });
+  search.addEventListener('input', () => renderSelection());
+  list.addEventListener('click', (event) => {
+    const fullName = (event.target as HTMLElement).closest<HTMLElement>('[data-github-repository]')?.dataset.githubRepository;
+    if (!fullName) return;
+    selectedRepository = githubRepositories.find((item) => item.fullName === fullName) ?? null;
+    renderSelection();
+  });
+  confirm.addEventListener('click', async () => {
+    if (!selectedRepository) return;
+    confirm.disabled = true;
+    try {
+      // Solo tocar git origin si esta carpeta no la comparten otras workspaces.
+      if (!workspacePathIsShared(workspace)) {
+        try {
+          await invoke<string>('git_set_github_origin', {
+            path: workspace.path,
+            repository: selectedRepository.fullName,
+          });
+        } catch {
+          // La carpeta puede no ser un repo usable; igual guardamos el vínculo en el workspace.
+        }
+      }
+      workspace.repository = selectedRepository.fullName;
+      // Por si un backfill previo copió el mismo repo a hermanas de la misma ruta.
+      for (const sibling of workspacesSharingPath(workspace.path)) {
+        if (sibling.id === workspace.id) continue;
+        if (sibling.repository?.trim().toLowerCase() === selectedRepository.fullName.toLowerCase()) {
+          sibling.repository = null;
+        }
+      }
+      dedupeSharedPathRepositories(workspace.id);
+      saveWorkspaces();
+      refreshSavedWorkspaceSurfaces();
+      showToast(t('menu.connectRepoDone', { repo: selectedRepository.fullName, name: workspace.name }));
+      close();
+    } catch (error) {
+      confirm.disabled = false;
+      showToast(t('menu.connectRepoFail', { error: String(error) }), true);
+    }
+  });
+  renderSelection();
+  search.focus();
+}
+
+async function openConnectGithubRepositoryFromMenu(): Promise<void> {
+  if (!hasActiveSubscription()) {
+    void ensureSignedInForDesktop();
+    return;
+  }
+  if (!githubAuth.connected) {
+    await connectGithubAccount();
+    if (!githubAuth.connected) return;
+  }
+  openCloneRepositoryModal(true, true);
 }
 
 function syncMainMenuRuntimeState(): void {
@@ -9340,7 +10646,7 @@ function bindWindowControls(): void {
     }
   });
   titlebar.addEventListener('mousedown', (event) => { if (event.button === 0 && !(event.target as HTMLElement).closest('button,input,a')) safe('No se pudo mover la ventana', () => currentWindow.startDragging()); });
-  titlebar.addEventListener('dblclick', (event) => { if (!(event.target as HTMLElement).closest('button,input,a')) safe('No se pudo cambiar el tamaño', () => currentWindow.toggleMaximize()); });
+  titlebar.addEventListener('dblclick', (event) => { if (!(event.target as HTMLElement).closest('button,input,a')) safe(t('toast.resizeFail'), () => currentWindow.toggleMaximize()); });
 }
 
 function bindTerminalSplitter(): void {
@@ -9495,22 +10801,28 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#asa-accounts')?.addEventListener('click', () => { void openAccountsModal(); });
   document.querySelector<HTMLButtonElement>('#titlebar-layout-picker')?.addEventListener('click', (event) => {
     event.stopPropagation();
-    if (event.shiftKey) {
-      openLayoutPicker();
+    if (document.querySelector('.layout-picker-menu')) {
+      document.querySelector('.layout-picker-menu')?.remove();
+      document.querySelector('#titlebar-layout-picker')?.setAttribute('aria-expanded', 'false');
       return;
     }
-    toggleDesignMode();
+    openLayoutPicker();
   });
   nativeAgentForm.addEventListener('submit', (event) => {
     event.preventDefault();
     void sendNativeAgentMessage();
   });
-  nativeAgentInput.addEventListener('input', resizeNativeAgentInput);
+  nativeAgentInput.addEventListener('input', () => {
+    resizeNativeAgentInput();
+    refreshSlashCommandMenu('a');
+    renderComposerUsage();
+  });
   nativeAgentProvider.addEventListener('change', () => {
     syncComposerPlaceholder();
     renderComposerUsage();
     renderComposerModel();
     renderComposerAccount();
+    refreshSlashCommandMenu('a');
   });
   document.querySelector<HTMLButtonElement>('#composer-account')?.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -9518,7 +10830,7 @@ function bindInteractions(): void {
       closeAccountPicker();
       return;
     }
-    openAccountPicker();
+    openAccountPicker('a');
   });
   nativeAgentModel.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -9526,7 +10838,7 @@ function bindInteractions(): void {
       closeModelPicker();
       return;
     }
-    openModelPicker();
+    openModelPicker('a');
   });
   nativeAgentEfforts.addEventListener('click', (event) => {
     const effort = (event.target as HTMLElement).closest<HTMLElement>('[data-effort]')?.dataset.effort;
@@ -9539,6 +10851,7 @@ function bindInteractions(): void {
   resizeNativeAgentInput();
   syncComposerPlaceholder();
   nativeAgentInput.addEventListener('keydown', (event) => {
+    if (handleComposerSlashKeydown(event, 'a')) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void sendNativeAgentMessage();
@@ -9561,11 +10874,16 @@ function bindInteractions(): void {
       resize: resizeNativeAgentInput,
       toast: showToast,
       canStart: () => {
-        if (!comesSession?.email || !comesSession.token) return 'Inicia sesión en ComesADE para usar voz.';
+        if (!comesSession?.email || !comesSession.token) return t('toast.voiceSignInShort');
         if (isUnlimitedSpeechQuota(speechQuota, comesSession.email)) return null;
-        if (!speechQuota || (speechQuota.limit ?? 0) <= 0) return 'Necesitas un plan Starter, Pro o Advanced para usar voz.';
+        if (!speechQuota) {
+          return comesSession.subscriptionActive
+            ? t('toast.voiceVerifyFail')
+            : t('toast.voicePlanRequired');
+        }
+        if ((speechQuota.limit ?? 0) <= 0) return t('toast.voicePlanRequired');
         if ((speechQuota.remaining ?? 0) < 1) {
-          return 'Se agotaron los tokens de voz. Se reinician al pagar la suscripción.';
+          return t('toast.voiceExhaustedRenew');
         }
         return null;
       },
@@ -9589,7 +10907,24 @@ function bindInteractions(): void {
     speakAgentReply();
   });
   document.querySelector<HTMLButtonElement>('#composer-accounts')?.addEventListener('click', () => { void openAccountsModal(); });
-  document.querySelector<HTMLButtonElement>('#composer-changes')?.addEventListener('click', () => { setInspectorTab('git'); });
+  document.querySelector<HTMLButtonElement>('#composer-changes')?.addEventListener('click', () => { openComposerGitReview(); });
+  document.querySelector<HTMLButtonElement>('#composer-files-changed-toggle')?.addEventListener('click', () => {
+    composerFilesChangedExpanded = !composerFilesChangedExpanded;
+    renderComposerGitChrome();
+  });
+  document.querySelector<HTMLButtonElement>('#composer-files-review-all')?.addEventListener('click', () => {
+    openComposerGitReview();
+  });
+  document.querySelector('#composer-files-changed-list')?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement;
+    const reviewPath = target.closest<HTMLElement>('[data-composer-review-path]')?.dataset.composerReviewPath;
+    const filePath = target.closest<HTMLElement>('[data-composer-file-path]')?.dataset.composerFilePath;
+    if (reviewPath) {
+      openComposerGitReview(reviewPath);
+      return;
+    }
+    if (filePath) openComposerGitReview(filePath);
+  });
   document.querySelector<HTMLButtonElement>('#composer-commit-action')?.addEventListener('click', () => { openComposerCommitModal(); });
   document.querySelector<HTMLButtonElement>('#composer-git-branch')?.addEventListener('click', () => { void openGitBranchMenu(); });
   document.querySelectorAll<HTMLButtonElement>('[data-activity]').forEach((button) => {
@@ -9724,7 +11059,7 @@ function bindInteractions(): void {
     }
     if (discardPath) {
       void (async () => {
-        if (!(await askConfirm('Esto descartará los cambios reales del archivo. ¿Continuar?', { title: 'Descartar cambios', confirmLabel: 'Descartar', danger: true }))) return;
+        if (!(await askConfirm(t('modal.discardChangesCopy'), { title: t('modal.discardChangesTitle'), confirmLabel: t('modal.unsavedDiscard'), danger: true }))) return;
         try {
           await invoke('discard', { path: root, paths: [discardPath] });
           await refreshGitPanel();
@@ -9800,7 +11135,7 @@ function bindInteractions(): void {
     }
     if (discardPath) {
       void (async () => {
-        if (!(await askConfirm('Esto descartará los cambios reales del archivo. ¿Continuar?', { title: 'Descartar cambios', confirmLabel: 'Descartar', danger: true }))) return;
+        if (!(await askConfirm(t('modal.discardChangesCopy'), { title: t('modal.discardChangesTitle'), confirmLabel: t('modal.unsavedDiscard'), danger: true }))) return;
         try {
           await invoke('discard', { path: gitActionRoot() ?? workspace.path, paths: [discardPath] });
           await refreshGitPanel();
@@ -9832,7 +11167,7 @@ function bindInteractions(): void {
         return;
       }
       void (async () => {
-        if (!(await askConfirm('Esto fusionará la rama real ' + mergeBranch + ' en el workspace principal. ¿Continuar?', { title: 'Fusionar worktree', confirmLabel: 'Fusionar' }))) return;
+        if (!(await askConfirm(t('modal.mergeWorktreeCopy', { branch: mergeBranch }), { title: t('modal.mergeWorktreeTitle'), confirmLabel: t('modal.mergeConfirm') }))) return;
         try {
           await invoke('merge_worktree', { path: workspace.path, branchName: mergeBranch });
           await refreshGitPanel();
@@ -9852,7 +11187,7 @@ function bindInteractions(): void {
       return;
     }
     void (async () => {
-      if (!(await askConfirm('Esto eliminará el worktree Git real y su carpeta. ¿Continuar?', { title: 'Quitar worktree', confirmLabel: 'Eliminar', danger: true }))) return;
+      if (!(await askConfirm(t('modal.removeWorktreeCopy'), { title: t('modal.removeWorktreeTitle'), confirmLabel: t('modal.removeConfirm'), danger: true }))) return;
       try {
         await invoke('worktree_remove', { path: workspace.path, worktreePath: path });
         await refreshWorktrees();
@@ -9885,6 +11220,13 @@ function bindInteractions(): void {
       openWorkspaceManageMenu(event as MouseEvent, manage.dataset.workspaceManage ?? '');
       return;
     }
+    const connect = (event.target as HTMLElement).closest<HTMLElement>('[data-workspace-connect-repo]');
+    if (connect) {
+      event.preventDefault();
+      event.stopPropagation();
+      void openLinkGithubRepoToWorkspace(connect.dataset.workspaceConnectRepo ?? '', false);
+      return;
+    }
     const id = (event.target as HTMLElement).closest<HTMLElement>('[data-sidebar-workspace]')?.dataset.sidebarWorkspace;
     const workspace = id ? getWorkspace(id) : undefined;
     if (workspace) void activateWorkspace(workspace, true);
@@ -9913,10 +11255,10 @@ function bindInteractions(): void {
   });
   document.querySelector<HTMLButtonElement>('#open-browser-menu')?.addEventListener('click', openBrowserMenu);
   document.querySelector<HTMLButtonElement>('#start-explore')?.addEventListener('click', () => {
-    focusComposer('Explora este workspace y resume cómo está organizado el código, con archivos reales.');
+    focusComposer(t('chrome.explorePrompt'));
   });
   document.querySelector<HTMLButtonElement>('#start-build')?.addEventListener('click', () => {
-    focusComposer('Quiero construir una feature. Propón un plan y empieza por los archivos reales de este workspace.');
+    focusComposer(t('chrome.buildPrompt'));
   });
   document.querySelector<HTMLButtonElement>('#sidebar-tab-plugins')?.addEventListener('click', () => { void openAccountsModal(); });
   document.querySelector<HTMLButtonElement>('#sidebar-tab-projects')?.addEventListener('click', () => {
@@ -10330,9 +11672,15 @@ async function initialize(): Promise<void> {
   } catch (error) {
     showToast(t('toast.bootFail', { error: String(error) }), true);
   }
-  if (!hasActiveSubscription() || document.getElementById('main-menu-backdrop')) openMainMenu();
+  startSubscriptionWatch();
+  if (!hasActiveSubscription()) {
+    openComesAuthScreen();
+  } else if (document.getElementById('main-menu-backdrop')) {
+    openMainMenu();
+  }
   void Promise.all([refreshGithubAuth(), refreshProviderAccounts()]).then(() => {
-    if (document.getElementById('main-menu-backdrop') || !hasActiveSubscription()) openMainMenu();
+    if (!hasActiveSubscription()) openComesAuthScreen();
+    else if (document.getElementById('main-menu-backdrop')) openMainMenu();
   });
 }
 

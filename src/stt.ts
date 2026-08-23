@@ -1,4 +1,5 @@
 import { STT_LANGUAGES } from './stt-languages';
+import { t } from './i18n';
 
 const STORAGE_KEY = 'comesade.stt-language';
 const MIC_STORAGE_KEY = 'comesade.microphone-id';
@@ -38,7 +39,7 @@ export async function listMicrophones(): Promise<MicrophoneOption[]> {
     .filter((device) => device.kind === 'audioinput')
     .map((device, index) => ({
       id: device.deviceId,
-      label: device.label.trim() || `Micrófono ${index + 1}`,
+      label: device.label.trim() || t('toast.micLabel', { n: index + 1 }),
     }))
     .filter((device) => device.id);
 
@@ -167,24 +168,24 @@ export function bindComposerSpeech(options: {
     recording = false;
     mic.classList.remove('is-recording');
     mic.setAttribute('aria-pressed', 'false');
-    mic.title = 'Dictado con ComesADE';
+    mic.title = t('chrome.dictationTitle');
   };
 
   const finish = async (): Promise<void> => {
     const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
     stopTracks();
     if (blob.size < 800) {
-      toast('No se captó audio. Habla y pulsa de nuevo el micrófono.', true);
+      toast(t('toast.noAudio'), true);
       return;
     }
     transcribing = true;
     mic.disabled = true;
-    mic.title = 'Transcribiendo en ComesADE…';
-    toast('Transcribiendo en ComesADE…');
+    mic.title = t('chrome.dictationTranscribing');
+    toast(t('toast.transcribing'));
     try {
       const text = await transcribe(blob, lang.value);
       if (!text) {
-        toast('No se reconoció habla en esa grabación.', true);
+        toast(t('toast.noSpeech'), true);
         return;
       }
       appendTranscript(input, text, resize);
@@ -193,7 +194,7 @@ export function bindComposerSpeech(options: {
     } finally {
       transcribing = false;
       mic.disabled = false;
-      mic.title = 'Dictado con ComesADE';
+      mic.title = t('chrome.dictationTitle');
     }
   };
 
@@ -211,7 +212,7 @@ export function bindComposerSpeech(options: {
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      toast('Este WebView no expone el micrófono.', true);
+      toast(t('toast.micWebview'), true);
       return;
     }
     try {
@@ -233,7 +234,7 @@ export function bindComposerSpeech(options: {
         if (dataEvent.data.size) chunks.push(dataEvent.data);
       };
       recorder.onerror = () => {
-        toast('Falló la grabación del micrófono.', true);
+        toast(t('toast.micRecordFail'), true);
         stopTracks();
       };
       recorder.onstop = () => {
@@ -243,7 +244,7 @@ export function bindComposerSpeech(options: {
       recording = true;
       mic.classList.add('is-recording');
       mic.setAttribute('aria-pressed', 'true');
-      mic.title = 'Detener y transcribir';
+      mic.title = t('chrome.dictationStop');
       setListening(true);
       startListeningMeter(stream, listeningBars ?? null);
       stopTimer = window.setTimeout(() => {
@@ -251,7 +252,7 @@ export function bindComposerSpeech(options: {
       }, MAX_RECORD_MS);
     } catch (error) {
       stopTracks();
-      toast(`No se pudo usar el micrófono: ${String(error)}`, true);
+      toast(t('toast.micFail', { error: String(error) }), true);
     }
   });
 }

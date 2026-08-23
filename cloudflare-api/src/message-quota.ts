@@ -163,20 +163,34 @@ export async function consumeMessageRequests(db: D1Database, email: string, coun
       quota: found.quota,
     };
   }
-  const nextUsed = found.quota.used + count;
   const now = new Date().toISOString();
-  await db.prepare(`
+  const write = await db.prepare(`
     INSERT INTO message_usage (customer_id, period_key, used, updated_at)
     VALUES (?1, ?2, ?3, ?4)
     ON CONFLICT(customer_id) DO UPDATE SET
       period_key = excluded.period_key,
       used = CASE
-        WHEN message_usage.period_key = excluded.period_key THEN excluded.used
+        WHEN message_usage.period_key = excluded.period_key THEN message_usage.used + excluded.used
         ELSE excluded.used
       END,
       updated_at = excluded.updated_at
-  `).bind(row.customer_id, periodKey, nextUsed, now).run();
-  return { ok: true, quota: quotaPayload(found.quota.plan, nextUsed, periodKey) };
+    WHERE message_usage.period_key <> excluded.period_key
+       OR message_usage.used + excluded.used <= ?5
+  `).bind(row.customer_id, periodKey, count, now, found.quota.limit ?? 0).run();
+
+  const latest = await messageQuotaForEmail(db, email);
+  if (Number(write.meta?.changes ?? 0) !== 1) {
+    if (!latest.ok) return latest;
+    return {
+      ok: false,
+      status: 402,
+      error: 'message_quota_exceeded',
+      message: `El plan ${latest.quota.plan} permite ${latest.quota.limit} mensajes enviados por semana. Quedan ${latest.quota.remaining}. Se reinicia el lunes.`,
+      quota: latest.quota,
+    };
+  }
+  if (!latest.ok) return latest;
+  return { ok: true, quota: latest.quota };
 }
 
 async function readJson(request: Request): Promise<
