@@ -17,8 +17,12 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod agent_runtime;
+mod design_mode;
 mod git_service;
 mod github_service;
+mod provider_auth;
+mod providers;
 mod storage;
 mod workspace_fs;
 
@@ -344,11 +348,70 @@ fn platform_default_shell_name() -> String {
 }
 
 #[cfg(windows)]
+fn windows_system32() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+        .join("System32")
+}
+
+fn executable_stem(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+fn path_matches_requested(path: &Path, requested: &str) -> bool {
+    let requested_stem = Path::new(requested)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(requested)
+        .to_ascii_lowercase();
+    let stem = executable_stem(path);
+    !stem.is_empty() && stem == requested_stem
+}
+
+fn is_known_shell_binary(path: &Path) -> bool {
+    matches!(
+        executable_stem(path).as_str(),
+        "powershell"
+            | "pwsh"
+            | "cmd"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "sh"
+            | "wsl"
+            | "nu"
+            | "elvish"
+    )
+}
+
+#[cfg(windows)]
 fn resolve_powershell() -> Result<(PathBuf, String), String> {
     if let Ok(path) = resolve_executable("pwsh.exe") {
-        return Ok((path, "PowerShell 7".to_string()));
+        if path_matches_requested(&path, "pwsh.exe") {
+            return Ok((path, "PowerShell 7".to_string()));
+        }
     }
-    resolve_executable("powershell.exe").map(|path| (path, "Windows PowerShell".to_string()))
+    let system_powershell = windows_system32()
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe");
+    if system_powershell.is_file() {
+        return Ok((
+            clean_windows_path(system_powershell.canonicalize().unwrap_or(system_powershell)),
+            "Windows PowerShell".to_string(),
+        ));
+    }
+    resolve_executable("powershell.exe").and_then(|path| {
+        if path_matches_requested(&path, "powershell.exe") {
+            Ok((path, "Windows PowerShell".to_string()))
+        } else {
+            Err("No se encontro Windows PowerShell en System32.".to_string())
+        }
+    })
 }
 
 #[cfg(not(windows))]
@@ -375,7 +438,7 @@ pub(crate) fn resolve_executable(name: &str) -> Result<PathBuf, String> {
     if candidate.is_file() {
         return candidate
             .canonicalize()
-            .map(clean_executable_path)
+            .map(clean_windows_path)
             .map_err(|error| format!("No se pudo resolver el ejecutable: {error}"));
     }
 
@@ -403,17 +466,22 @@ pub(crate) fn resolve_executable(name: &str) -> Result<PathBuf, String> {
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(str::trim)
-        .find(|line| !line.is_empty())
+        .map(|line| line.trim_matches('"'))
+        .filter(|line| !line.is_empty())
         .map(PathBuf::from)
-        .map(clean_executable_path)
+        .find(|path| path.is_file() && path_matches_requested(path, trimmed))
+        .map(clean_windows_path)
         .ok_or_else(|| format!("No se encontro \"{trimmed}\" en PATH."))
 }
 
-fn clean_executable_path(path: PathBuf) -> PathBuf {
+pub(crate) fn clean_windows_path(path: PathBuf) -> PathBuf {
     if cfg!(windows) {
         let text = path.to_string_lossy();
         if let Some(stripped) = text.strip_prefix("\\\\?\\") {
             return PathBuf::from(stripped);
+        }
+        if let Some(stripped) = text.strip_prefix("//?/") {
+            return PathBuf::from(stripped.replace('/', "\\"));
         }
     }
     path
@@ -549,11 +617,26 @@ fn resolve_shell(request: &CreateSessionRequest) -> Result<ShellSpec, String> {
                 "-NoExit".to_string(),
             ],
         ),
-        "cmd" | "cmd.exe" if cfg!(windows) => (
-            resolve_executable("cmd.exe")?,
-            "Command Prompt".to_string(),
-            vec!["/Q".to_string()],
-        ),
+        "cmd" | "cmd.exe" if cfg!(windows) => {
+            #[cfg(windows)]
+            {
+                let system_cmd = windows_system32().join("cmd.exe");
+                let path = if system_cmd.is_file() {
+                    clean_windows_path(system_cmd.canonicalize().unwrap_or(system_cmd))
+                } else {
+                    resolve_executable("cmd.exe")?
+                };
+                (
+                    path,
+                    "Command Prompt".to_string(),
+                    vec!["/Q".to_string()],
+                )
+            }
+            #[cfg(not(windows))]
+            {
+                return Err("Command Prompt solo está disponible en Windows.".to_string());
+            }
+        }
         "cmd" | "cmd.exe" => {
             return Err("Command Prompt solo está disponible en Windows.".to_string())
         }
@@ -589,7 +672,30 @@ fn resolve_shell(request: &CreateSessionRequest) -> Result<ShellSpec, String> {
         "wsl" | "wsl.exe" => return Err("WSL solo está disponible en Windows.".to_string()),
         custom => {
             let path = resolve_executable(custom)?;
-            (path.clone(), executable_label(&path), Vec::new())
+            if !is_known_shell_binary(&path) {
+                // Configuraciones rotas (p.ej. cargo.exe) no deben abrirse como shell.
+                #[cfg(windows)]
+                {
+                    let (path, label) = resolve_powershell()?;
+                    (
+                        path,
+                        label,
+                        vec![
+                            "-NoLogo".to_string(),
+                            "-NoProfile".to_string(),
+                            "-NoExit".to_string(),
+                        ],
+                    )
+                }
+                #[cfg(not(windows))]
+                {
+                    let fallback = platform_default_shell_id();
+                    let path = resolve_executable(&fallback)?;
+                    (path.clone(), executable_label(&path), vec!["-i".to_string()])
+                }
+            } else {
+                (path.clone(), executable_label(&path), Vec::new())
+            }
         }
     };
 
@@ -662,7 +768,13 @@ fn detect_agents() -> Vec<AgentDefinition> {
         ("opencode", "OpenCode"),
         ("gemini", "Gemini CLI"),
         ("cursor-agent", "Cursor Agent"),
+        ("grok", "Grok CLI"),
         ("aider", "Aider"),
+        ("droid", "Droid"),
+        ("kilo", "Kilo"),
+        ("pi", "Pi"),
+        ("antigravity", "Antigravity"),
+        ("qwen", "Qwen CLI"),
     ]
     .into_iter()
     .map(|(executable, name)| {
@@ -930,10 +1042,10 @@ fn open_external_url(url: String) -> Result<(), String> {
 
     #[cfg(windows)]
     {
-        let mut command = Command::new("explorer.exe");
-        command.arg(trimmed);
-        command.creation_flags(0x08000000);
-        command
+        Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(trimmed)
+            .creation_flags(0x08000000)
             .spawn()
             .map_err(|error| format!("No se pudo abrir el navegador: {error}"))?;
         Ok(())
@@ -972,7 +1084,7 @@ fn validate_workspace_path(path: String) -> Result<String, String> {
 
     candidate
         .canonicalize()
-        .map(|resolved| resolved.to_string_lossy().into_owned())
+        .map(|resolved| clean_windows_path(resolved).to_string_lossy().into_owned())
         .map_err(|error| format!("No se pudo validar la carpeta: {error}"))
 }
 
@@ -985,7 +1097,7 @@ fn pick_workspace_path() -> Result<Option<String>, String> {
     selected
         .map(|path| {
             path.canonicalize()
-                .map(|resolved| resolved.to_string_lossy().into_owned())
+                .map(|resolved| clean_windows_path(resolved).to_string_lossy().into_owned())
                 .map_err(|error| format!("No se pudo resolver la carpeta seleccionada: {error}"))
         })
         .transpose()
@@ -1095,6 +1207,13 @@ fn create_session(
             .unwrap_or(true)
         {
             command.env("TERM_PROGRAM", "ComesADE");
+        }
+    }
+    if let Some(agent_type) = request.agent_type.as_deref() {
+        for (key, value) in provider_auth::launch_environment(agent_type) {
+            if !key.trim().is_empty() {
+                command.env(key, value);
+            }
         }
     }
     if let Some(environment) = &request.env {
@@ -1624,6 +1743,37 @@ mod tests {
     }
 }
 
+#[cfg(windows)]
+fn allow_local_microphone(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        use webview2_com::{
+            Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
+                COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+            },
+            PermissionRequestedEventHandler,
+        };
+        let Ok(core) = webview.controller().CoreWebView2() else {
+            return;
+        };
+        let mut token = 0_i64;
+        let _ = core.add_PermissionRequested(
+            &PermissionRequestedEventHandler::create(Box::new(|_, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                args.PermissionKind(&mut kind)?;
+                if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE {
+                    args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        );
+    });
+}
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -1633,6 +1783,8 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
+                #[cfg(debug_assertions)]
+                let _ = window.reload();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -1664,9 +1816,11 @@ pub fn run() {
             git_service::install_git,
             git_service::repository_info,
             git_service::status,
+            git_service::git_status,
             git_service::diff_stats,
             git_service::branches,
             git_service::checkout_branch,
+            git_service::create_branch,
             git_service::diff,
             git_service::file_versions,
             git_service::file_versions_between,
@@ -1684,7 +1838,22 @@ pub fn run() {
             github_service::github_oauth_poll,
             github_service::github_disconnect,
             github_service::github_repositories,
+            github_service::github_create_repository,
             github_service::github_clone_repository,
+            provider_auth::provider_status,
+            provider_auth::provider_list_status,
+            provider_auth::provider_oauth_start,
+            provider_auth::provider_oauth_poll,
+            provider_auth::provider_oauth_cancel,
+            provider_auth::provider_save_key,
+            provider_auth::provider_disconnect,
+            provider_auth::provider_usage,
+            provider_auth::provider_usage_restore,
+            agent_runtime::agent_chat_start,
+            agent_runtime::agent_chat_cancel,
+            design_mode::design_bridge_port,
+            design_mode::webview_eval,
+            design_mode::capture_webview_region,
             storage::load_local_state,
             storage::save_local_state,
             watch_workspace,
@@ -1699,10 +1868,14 @@ pub fn run() {
             reveal_path,
             open_external_url
         ])
-        .setup(|_app| {
-            #[cfg(debug_assertions)]
-            if let Some(window) = _app.get_webview_window("main") {
-                window.open_devtools();
+        .setup(|app| {
+            let port = design_mode::start(app.handle().clone());
+            app.manage(design_mode::DesignBridgePort(port));
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                allow_local_microphone(&window);
+                let _ = window.show();
+                let _ = window.set_focus();
             }
             Ok(())
         })

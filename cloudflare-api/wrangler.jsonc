@@ -3,12 +3,28 @@
   "name": "comesade-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["nodejs_compat"],
   "placement": {
     "mode": "smart"
   },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "PAYPAL_ENVIRONMENT": "live",
+    "PAYPAL_CURRENCY": "USD",
+    "PAYPAL_CLIENT_ID": "BAAAzQ49dsGy3wiwspsVxWdrb4QM93LF1QE6Do3yzA6em4GCuub34OKGUdfoylqvEPauqUvGGm-Ezpc-pk",
+    "PAYPAL_PLAN_STARTER": "P-28U48476G3567800GNKE432Y",
+    "PAYPAL_PLAN_PRO": "P-80591305AH2677115NKE45XA",
+    "PAYPAL_PLAN_ADVANCED": "P-0TR88491YV961004JNKE46IA",
+    "PAYPAL_PRICE_STARTER": "$5",
+    "PAYPAL_PRICE_PRO": "$15",
+    "PAYPAL_PRICE_ADVANCED": "$25",
+    "BETTER_AUTH_URL": "https://comesade-api.kingfrianfrian16.workers.dev"
   },
   "d1_databases": [
     {
@@ -17,5 +33,8 @@
       "database_id": "9c8b5847-87df-4174-9403-189cf50bd570",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "ai": {
+    "binding": "AI"
+  }
 }

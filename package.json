@@ -1,13 +1,16 @@
 {
   "name": "comesade",
-  "version": "1.22.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-vite.mjs",
+    "dev:vite": "node scripts/dev-vite.mjs --once",
+    "start": "node scripts/tauri.mjs dev",
+    "dev:desktop": "node scripts/tauri.mjs dev",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node scripts/tauri.mjs",
     "publish:desktop": "powershell.exe -NoProfile -NonInteractive -File scripts/publish-desktop.ps1",
     "publish:desktop:signed": "powershell.exe -NoProfile -NonInteractive -File scripts/publish-desktop.ps1 -RequireSignature",
     "release:desktop": "npm run tauri build && npm run publish:desktop",
@@ -24,6 +27,7 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.3.0",
+    "better-auth": "^1.7.1",
     "monaco-editor": "^0.52.2"
   },
   "devDependencies": {

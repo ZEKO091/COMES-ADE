@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -80,6 +81,12 @@ struct StoredGithubCredentials {
     refresh_token: Option<String>,
     access_token_expires_at: Option<u64>,
     refresh_token_expires_at: Option<u64>,
+    #[serde(default)]
+    login: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +149,34 @@ struct GithubApiOwner {
     login: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct GithubInstallationsResponse {
+    #[serde(default)]
+    installations: Vec<GithubInstallation>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubInstallation {
+    id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubInstallationRepositoriesResponse {
+    #[serde(default)]
+    repositories: Vec<GithubApiRepository>,
+}
+
+#[derive(Debug, Serialize)]
+struct GithubCreateRepositoryBody {
+    name: String,
+    private: bool,
+    auto_init: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+}
+
+const GITHUB_OAUTH_SCOPES: &str = "repo read:user user:email";
+
 fn default_poll_interval() -> u64 {
     5
 }
@@ -164,6 +199,14 @@ fn validate_client_id(client_id: &str) -> Result<String, String> {
 fn keyring_entry() -> Result<Entry, String> {
     Entry::new(GITHUB_KEYRING_SERVICE, GITHUB_KEYRING_ACCOUNT)
         .map_err(|error| format!("No se pudo abrir el almacen seguro del sistema: {error}"))
+}
+
+pub fn current_access_token() -> Option<String> {
+    load_credentials()
+        .ok()
+        .flatten()
+        .map(|credentials| credentials.access_token)
+        .filter(|token| !token.trim().is_empty())
 }
 
 fn load_credentials() -> Result<Option<StoredGithubCredentials>, String> {
@@ -279,7 +322,7 @@ fn token_error(payload: &GithubTokenPayload) -> Option<String> {
 
 fn credentials_from_token_payload(
     payload: GithubTokenPayload,
-    existing_refresh_token: Option<String>,
+    existing: Option<&StoredGithubCredentials>,
 ) -> Result<StoredGithubCredentials, String> {
     if let Some(error) = token_error(&payload) {
         return Err(error);
@@ -291,14 +334,43 @@ fn credentials_from_token_payload(
     let now = current_timestamp();
     Ok(StoredGithubCredentials {
         access_token,
-        refresh_token: payload.refresh_token.or(existing_refresh_token),
+        refresh_token: payload
+            .refresh_token
+            .or_else(|| existing.and_then(|credentials| credentials.refresh_token.clone())),
         access_token_expires_at: payload
             .expires_in
             .map(|seconds| now.saturating_add(seconds)),
         refresh_token_expires_at: payload
             .refresh_token_expires_in
             .map(|seconds| now.saturating_add(seconds)),
+        login: existing.and_then(|credentials| credentials.login.clone()),
+        display_name: existing.and_then(|credentials| credentials.display_name.clone()),
+        avatar_url: existing.and_then(|credentials| credentials.avatar_url.clone()),
     })
+}
+
+fn github_error_is_revoked(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("401")
+        || lower.contains("bad credentials")
+        || lower.contains("invalid_grant")
+        || lower.contains("incorrect_client_credentials")
+        || lower.contains("revoked")
+}
+
+fn cached_github_status(
+    credentials: &StoredGithubCredentials,
+    error: Option<String>,
+) -> GithubAuthStatus {
+    GithubAuthStatus {
+        connected: true,
+        oauth_configured: true,
+        login: credentials.login.clone(),
+        display_name: credentials.display_name.clone(),
+        avatar_url: credentials.avatar_url.clone(),
+        host: Some("github.com".to_string()),
+        error,
+    }
 }
 
 fn refresh_credentials(
@@ -331,7 +403,7 @@ fn refresh_credentials(
         .send()
         .map_err(|error| format!("No se pudo renovar la sesion de GitHub: {error}"))?;
     let payload = oauth_response(response)?;
-    credentials_from_token_payload(payload, credentials.refresh_token)
+    credentials_from_token_payload(payload, Some(&credentials))
 }
 
 fn credentials_for_api(client_id: &str) -> Result<StoredGithubCredentials, String> {
@@ -398,25 +470,26 @@ fn github_auth_status_for_client(client_id: &str) -> GithubAuthStatus {
     let client = match github_client() {
         Ok(client) => client,
         Err(error) => {
-            return GithubAuthStatus {
-                connected: false,
-                oauth_configured: true,
-                login: None,
-                display_name: None,
-                avatar_url: None,
-                host: None,
-                error: Some(error),
-            };
+            return cached_github_status(
+                &credentials,
+                Some(format!("{error} El trabajo local sigue disponible sin red.")),
+            );
         }
     };
     if credentials
         .access_token_expires_at
         .is_some_and(|expires_at| expires_at <= current_timestamp().saturating_add(60))
     {
-        match refresh_credentials(&client, client_id, credentials) {
+        match refresh_credentials(&client, client_id, credentials.clone()) {
             Ok(refreshed) => {
                 credentials = refreshed;
                 if let Err(error) = save_credentials(&credentials) {
+                    return cached_github_status(&credentials, Some(error));
+                }
+            }
+            Err(error) => {
+                if github_error_is_revoked(&error) {
+                    let _ = delete_credentials();
                     return GithubAuthStatus {
                         connected: false,
                         oauth_configured: true,
@@ -427,18 +500,12 @@ fn github_auth_status_for_client(client_id: &str) -> GithubAuthStatus {
                         error: Some(error),
                     };
                 }
-            }
-            Err(error) => {
-                let _ = delete_credentials();
-                return GithubAuthStatus {
-                    connected: false,
-                    oauth_configured: true,
-                    login: None,
-                    display_name: None,
-                    avatar_url: None,
-                    host: None,
-                    error: Some(error),
-                };
+                return cached_github_status(
+                    &credentials,
+                    Some(format!(
+                        "{error} GitHub no se pudo verificar sin red; el IDE local sigue disponible."
+                    )),
+                );
             }
         }
     }
@@ -448,33 +515,43 @@ fn github_auth_status_for_client(client_id: &str) -> GithubAuthStatus {
         &format!("{GITHUB_API_BASE}/user"),
         &credentials.access_token,
     ) {
-        Ok(user) => GithubAuthStatus {
-            connected: true,
-            oauth_configured: true,
-            login: Some(user.login),
-            display_name: user.name,
-            avatar_url: user.avatar_url,
-            host: Some("github.com".to_string()),
-            error: None,
-        },
-        Err(error) => {
-            if error.contains("401") || error.to_ascii_lowercase().contains("bad credentials") {
-                let _ = delete_credentials();
-            }
+        Ok(user) => {
+            credentials.login = Some(user.login.clone());
+            credentials.display_name = user.name.clone();
+            credentials.avatar_url = user.avatar_url.clone();
+            let _ = save_credentials(&credentials);
             GithubAuthStatus {
-                connected: false,
+                connected: true,
                 oauth_configured: true,
-                login: None,
-                display_name: None,
-                avatar_url: None,
-                host: None,
-                error: Some(if error.contains("401") {
-                    "La autorizacion de GitHub fue revocada o expiro; vuelve a conectar la cuenta."
-                        .to_string()
-                } else {
-                    error
-                }),
+                login: Some(user.login),
+                display_name: user.name,
+                avatar_url: user.avatar_url,
+                host: Some("github.com".to_string()),
+                error: None,
             }
+        }
+        Err(error) => {
+            if github_error_is_revoked(&error) {
+                let _ = delete_credentials();
+                return GithubAuthStatus {
+                    connected: false,
+                    oauth_configured: true,
+                    login: None,
+                    display_name: None,
+                    avatar_url: None,
+                    host: None,
+                    error: Some(
+                        "La autorizacion de GitHub fue revocada o expiro; vuelve a conectar la cuenta."
+                            .to_string(),
+                    ),
+                };
+            }
+            cached_github_status(
+                &credentials,
+                Some(format!(
+                    "{error} GitHub no se pudo verificar sin red; el IDE local sigue disponible."
+                )),
+            )
         }
     }
 }
@@ -493,7 +570,10 @@ pub fn github_oauth_start(client_id: String) -> Result<GithubDeviceAuthorization
         .header(ACCEPT, "application/json")
         .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
         .header(USER_AGENT, "ComesADE/Desktop")
-        .form(&[("client_id", client_id.as_str())])
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("scope", GITHUB_OAUTH_SCOPES),
+        ])
         .send()
         .map_err(|error| format!("No se pudo iniciar la autorizacion de GitHub: {error}"))?;
     if !response.status().is_success() {
@@ -621,44 +701,194 @@ pub fn github_disconnect() -> Result<(), String> {
     delete_credentials()
 }
 
-#[tauri::command]
-pub fn github_repositories(client_id: String) -> Result<Vec<GithubRepository>, String> {
-    let credentials = credentials_for_api(&validate_client_id(&client_id)?)?;
-    let client = github_client()?;
+fn map_github_repository(repository: GithubApiRepository) -> GithubRepository {
+    GithubRepository {
+        id: repository.id,
+        name: repository.name,
+        full_name: repository.full_name,
+        owner_login: repository.owner.login,
+        description: repository.description,
+        private: repository.private,
+        fork: repository.fork,
+        archived: repository.archived,
+        visibility: repository.visibility,
+        html_url: repository.html_url,
+        clone_url: repository.clone_url,
+        ssh_url: repository.ssh_url,
+        default_branch: repository.default_branch,
+        updated_at: repository.updated_at,
+        pushed_at: repository.pushed_at,
+    }
+}
+
+fn fetch_user_repositories(
+    client: &Client,
+    access_token: &str,
+) -> Result<Vec<GithubApiRepository>, String> {
     let mut repositories = Vec::new();
     for page in 1..=100 {
         let url = format!(
             "{GITHUB_API_BASE}/user/repos?per_page=100&page={page}&affiliation=owner,collaborator,organization_member&sort=updated&direction=desc"
         );
-        let page_repositories =
-            github_json::<Vec<GithubApiRepository>>(&client, &url, &credentials.access_token)?;
+        let page_repositories = github_json::<Vec<GithubApiRepository>>(client, &url, access_token)?;
         let page_size = page_repositories.len();
-        repositories.extend(
-            page_repositories
-                .into_iter()
-                .map(|repository| GithubRepository {
-                    id: repository.id,
-                    name: repository.name,
-                    full_name: repository.full_name,
-                    owner_login: repository.owner.login,
-                    description: repository.description,
-                    private: repository.private,
-                    fork: repository.fork,
-                    archived: repository.archived,
-                    visibility: repository.visibility,
-                    html_url: repository.html_url,
-                    clone_url: repository.clone_url,
-                    ssh_url: repository.ssh_url,
-                    default_branch: repository.default_branch,
-                    updated_at: repository.updated_at,
-                    pushed_at: repository.pushed_at,
-                }),
-        );
+        repositories.extend(page_repositories);
         if page_size < 100 {
             break;
         }
     }
     Ok(repositories)
+}
+
+fn fetch_installation_repositories(
+    client: &Client,
+    access_token: &str,
+) -> Result<Vec<GithubApiRepository>, String> {
+    let mut repositories = Vec::new();
+    for page in 1..=100 {
+        let url = format!("{GITHUB_API_BASE}/user/installations?per_page=100&page={page}");
+        let payload = github_json::<GithubInstallationsResponse>(client, &url, access_token)?;
+        let page_size = payload.installations.len();
+        for installation in payload.installations {
+            for repo_page in 1..=100 {
+                let repos_url = format!(
+                    "{GITHUB_API_BASE}/user/installations/{}/repositories?per_page=100&page={repo_page}",
+                    installation.id
+                );
+                let repos = github_json::<GithubInstallationRepositoriesResponse>(
+                    client,
+                    &repos_url,
+                    access_token,
+                )?;
+                let repo_count = repos.repositories.len();
+                repositories.extend(repos.repositories);
+                if repo_count < 100 {
+                    break;
+                }
+            }
+        }
+        if page_size < 100 {
+            break;
+        }
+    }
+    Ok(repositories)
+}
+
+fn merge_github_repositories(pages: Vec<Vec<GithubApiRepository>>) -> Vec<GithubRepository> {
+    let mut by_id = HashMap::new();
+    for page in pages {
+        for repository in page {
+            by_id.insert(repository.id, repository);
+        }
+    }
+    let mut repositories = by_id
+        .into_values()
+        .map(map_github_repository)
+        .collect::<Vec<_>>();
+    repositories.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left.full_name.to_ascii_lowercase().cmp(&right.full_name.to_ascii_lowercase()))
+    });
+    repositories
+}
+
+#[tauri::command]
+pub fn github_repositories(client_id: String) -> Result<Vec<GithubRepository>, String> {
+    let credentials = credentials_for_api(&validate_client_id(&client_id)?)?;
+    let client = github_client()?;
+    let mut pages = Vec::new();
+    let mut last_error = None;
+    match fetch_installation_repositories(&client, &credentials.access_token) {
+        Ok(repositories) => pages.push(repositories),
+        Err(error) => last_error = Some(error),
+    }
+    match fetch_user_repositories(&client, &credentials.access_token) {
+        Ok(repositories) => pages.push(repositories),
+        Err(error) => {
+            if pages.is_empty() {
+                last_error = Some(error);
+            }
+        }
+    }
+    let repositories = merge_github_repositories(pages);
+    if repositories.is_empty() {
+        if let Some(error) = last_error {
+            return Err(error);
+        }
+    }
+    Ok(repositories)
+}
+
+fn github_post_json<T: DeserializeOwned>(
+    client: &Client,
+    url: &str,
+    access_token: &str,
+    body: &impl Serialize,
+) -> Result<T, String> {
+    let response = client
+        .post(url)
+        .header(ACCEPT, "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+        .header(USER_AGENT, "ComesADE/Desktop")
+        .header(CONTENT_TYPE, "application/json")
+        .bearer_auth(access_token)
+        .json(body)
+        .send()
+        .map_err(|error| format!("No se pudo conectar con GitHub: {error}"))?;
+    if !response.status().is_success() {
+        return Err(github_response_error(
+            response,
+            "GitHub rechazo la solicitud",
+        ));
+    }
+    response
+        .json::<T>()
+        .map_err(|error| format!("GitHub devolvio una respuesta invalida: {error}"))
+}
+
+fn validate_new_repository_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 100 {
+        return Err("El nombre del repositorio de GitHub no es valido.".to_string());
+    }
+    if name.starts_with('-')
+        || name.ends_with('-')
+        || name.starts_with('.')
+        || name
+            .chars()
+            .any(|character| !character.is_ascii_alphanumeric() && !matches!(character, '-' | '_' | '.'))
+    {
+        return Err("El nombre del repositorio de GitHub no es valido.".to_string());
+    }
+    Ok(name)
+}
+
+#[tauri::command]
+pub fn github_create_repository(
+    client_id: String,
+    name: String,
+    private: bool,
+    description: Option<String>,
+) -> Result<GithubRepository, String> {
+    let credentials = credentials_for_api(&validate_client_id(&client_id)?)?;
+    let name = validate_new_repository_name(&name)?;
+    let client = github_client()?;
+    let created = github_post_json::<GithubApiRepository>(
+        &client,
+        &format!("{GITHUB_API_BASE}/user/repos"),
+        &credentials.access_token,
+        &GithubCreateRepositoryBody {
+            name: name.to_string(),
+            private,
+            auto_init: true,
+            description: description
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        },
+    )?;
+    Ok(map_github_repository(created))
 }
 
 fn clone_destination(destination: &str) -> Result<PathBuf, String> {
@@ -785,6 +1015,8 @@ mod tests {
         assert!(validate_repository_name("owner/repository-name").is_ok());
         assert!(validate_repository_name("owner/repository/name").is_err());
         assert!(validate_repository_name("owner/repository with spaces").is_err());
+        assert!(validate_new_repository_name("comesade").is_ok());
+        assert!(validate_new_repository_name("-bad").is_err());
     }
 
     #[test]

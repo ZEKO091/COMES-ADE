@@ -1,0 +1,4 @@
+# Cursor injects CARGO_TARGET_DIR into a sandbox cache that wipes bindgen
+# output (libsqlite3-sys). Keep artifacts next to this crate instead.
+[build]
+target-dir = "target"

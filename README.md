@@ -10,8 +10,10 @@ El proyecto está en `C:\Users\ianda\Documents\ComesADE`, fuera de OneDrive.
 
 ```powershell
 npm install
-npm run tauri dev
+npm start
 ```
+
+`npm start` deja Vite y Tauri en segundo plano y abre la ventana de ComesADE. Para ver la compilación en primer plano: `node scripts/tauri.mjs dev --foreground`.
 
 ## GitHub requerido
 
@@ -61,7 +63,7 @@ npm run build:windows:signed
 Artefactos generados:
 
 - `src-tauri\target\release\comesade.exe`
-- `src-tauri\target\release\bundle\nsis\ComesADE_1.22.0_x64-setup.exe`
+- `src-tauri\target\release\bundle\nsis\ComesADE_1.0.0_x64-setup.exe`
 
 Para preparar una versión distribuible y firmada, consulta
 [`docs/RELEASING.md`](docs/RELEASING.md). Nunca guardes certificados,

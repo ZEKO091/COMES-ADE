@@ -7,8 +7,14 @@ export default defineConfig({
     chunkSizeWarningLimit: 6500,
   },
   server: {
+    host: '127.0.0.1',
     port: 1420,
     strictPort: true,
+    hmr: {
+      host: '127.0.0.1',
+      port: 1420,
+      protocol: 'ws',
+    },
     watch: {
       ignored: ['**/src-tauri/target/**'],
     },

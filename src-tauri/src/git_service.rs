@@ -130,7 +130,9 @@ fn git_executable() -> Result<PathBuf, String> {
 
     for candidate in known_git_paths() {
         if candidate.is_file() {
-            return Ok(candidate.canonicalize().unwrap_or(candidate));
+            return Ok(crate::clean_windows_path(
+                candidate.canonicalize().unwrap_or(candidate),
+            ));
         }
     }
 
@@ -204,7 +206,7 @@ pub fn git_availability() -> GitAvailability {
         Ok(path) => {
             let version = git_version(&path);
             GitAvailability {
-                available: version.is_some(),
+                available: true,
                 path: Some(path.to_string_lossy().into_owned()),
                 version,
             }
@@ -273,13 +275,53 @@ pub fn install_git() -> Result<GitAvailability, String> {
 }
 
 fn canonical_directory(path: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(path.trim().trim_matches('"'))
-        .canonicalize()
-        .map_err(|error| format!("Could not resolve path: {error}"))?;
+    let path = crate::clean_windows_path(
+        PathBuf::from(path.trim().trim_matches('"'))
+            .canonicalize()
+            .map_err(|error| format!("Could not resolve path: {error}"))?,
+    );
     if !path.is_dir() {
         return Err("The path is not a directory.".to_string());
     }
     Ok(path)
+}
+
+#[cfg(windows)]
+fn normalize_git_reported_path(raw: &str) -> PathBuf {
+    let trimmed = raw.trim().trim_matches('"');
+    let bytes = trimmed.as_bytes();
+    if trimmed.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b'/'
+    {
+        let drive = (bytes[1] as char).to_ascii_uppercase();
+        let rest = trimmed[3..].replace('/', "\\");
+        return PathBuf::from(format!("{drive}:\\{rest}"));
+    }
+    PathBuf::from(trimmed.replace('/', "\\"))
+}
+
+#[cfg(not(windows))]
+fn normalize_git_reported_path(raw: &str) -> PathBuf {
+    PathBuf::from(raw.trim().trim_matches('"'))
+}
+
+fn git_path_from_output(raw: &str) -> Result<PathBuf, String> {
+    let candidate = normalize_git_reported_path(raw);
+    if candidate.as_os_str().is_empty() {
+        return Err("Git no devolvio la raiz del repositorio.".to_string());
+    }
+    let resolved = candidate.canonicalize().unwrap_or(candidate);
+    let cleaned = crate::clean_windows_path(resolved);
+    if cleaned.is_dir() {
+        Ok(cleaned)
+    } else {
+        Err(format!(
+            "Could not resolve Git root: {}",
+            cleaned.display()
+        ))
+    }
 }
 
 fn path_key(value: &Path) -> String {
@@ -300,8 +342,10 @@ fn path_key(value: &Path) -> String {
 }
 
 fn run_git(root: &Path, args: &[String]) -> Result<Output, String> {
+    let cwd = crate::clean_windows_path(root.to_path_buf());
     let mut command = git_command()?;
-    command.arg("-C").arg(root).args(args);
+    command.current_dir(&cwd);
+    command.arg("-C").arg(&cwd).args(args);
     command
         .output()
         .map_err(|error| format!("Could not start Git: {error}"))
@@ -325,23 +369,45 @@ fn repository_root(path: &str) -> Result<PathBuf, String> {
         &path,
         &["rev-parse".to_string(), "--show-toplevel".to_string()],
     )?;
-    PathBuf::from(output_text(&output)?.trim())
-        .canonicalize()
-        .map_err(|error| format!("Could not resolve Git root: {error}"))
+    git_path_from_output(&output_text(&output)?)
 }
 
-fn branch(root: &Path) -> Result<String, String> {
-    let output = run_git(
+fn branch(root: &Path) -> String {
+    let abbrev = run_git(
         root,
         &[
             "rev-parse".to_string(),
             "--abbrev-ref".to_string(),
             "HEAD".to_string(),
         ],
-    )?;
-    if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    );
+    if let Ok(output) = abbrev {
+        if output.status.success() {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !name.is_empty() && name != "HEAD" {
+                return name;
+            }
+            if name == "HEAD" {
+                if let Ok(short) = run_git(
+                    root,
+                    &[
+                        "rev-parse".to_string(),
+                        "--short".to_string(),
+                        "HEAD".to_string(),
+                    ],
+                ) {
+                    if short.status.success() {
+                        let hash = String::from_utf8_lossy(&short.stdout).trim().to_string();
+                        if !hash.is_empty() {
+                            return format!("HEAD ({hash})");
+                        }
+                    }
+                }
+                return "HEAD".to_string();
+            }
+        }
     }
+
     let symbolic = run_git(
         root,
         &[
@@ -350,16 +416,17 @@ fn branch(root: &Path) -> Result<String, String> {
             "--short".to_string(),
             "HEAD".to_string(),
         ],
-    )?;
-    if symbolic.status.success() {
-        return Ok(String::from_utf8_lossy(&symbolic.stdout).trim().to_string());
+    );
+    if let Ok(output) = symbolic {
+        if output.status.success() {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !name.is_empty() {
+                return name;
+            }
+        }
     }
-    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(if detail.is_empty() {
-        "Could not resolve the current Git branch.".to_string()
-    } else {
-        detail
-    })
+
+    "HEAD".to_string()
 }
 
 fn safe_relative_path(value: &str) -> Result<String, String> {
@@ -444,12 +511,10 @@ pub fn repository_info(path: String) -> Result<GitRepositoryInfo, String> {
     );
     match output {
         Ok(output) if output.status.success() => {
-            let root = PathBuf::from(output_text(&output)?.trim())
-                .canonicalize()
-                .map_err(|error| format!("Could not resolve Git root: {error}"))?;
+            let root = git_path_from_output(&output_text(&output)?)?;
             Ok(GitRepositoryInfo {
                 root: root.to_string_lossy().into_owned(),
-                branch: branch(&root)?,
+                branch: branch(&root),
                 is_repository: true,
             })
         }
@@ -502,7 +567,7 @@ fn parse_status_entries(output: &[u8]) -> Vec<GitStatusEntry> {
 }
 
 #[tauri::command]
-pub fn status(path: String) -> Result<GitStatusResult, String> {
+pub fn git_status(path: String) -> Result<GitStatusResult, String> {
     let root = repository_root(&path)?;
     let output = run_git(
         &root,
@@ -519,9 +584,14 @@ pub fn status(path: String) -> Result<GitStatusResult, String> {
 
     let entries = parse_status_entries(&output.stdout);
     Ok(GitStatusResult {
-        branch: branch(&root)?,
+        branch: branch(&root),
         entries,
     })
+}
+
+#[tauri::command]
+pub fn status(path: String) -> Result<GitStatusResult, String> {
+    git_status(path)
 }
 
 fn add_numstat(
@@ -677,6 +747,28 @@ pub fn checkout_branch(path: String, branch_name: String) -> Result<String, Stri
     output_text(&run_git(
         &root,
         &["checkout".to_string(), branch_name.to_string()],
+    )?)
+}
+
+#[tauri::command]
+pub fn create_branch(path: String, branch_name: String) -> Result<String, String> {
+    let root = repository_root(&path)?;
+    let branch_name = branch_name.trim();
+    if branch_name.is_empty()
+        || branch_name.starts_with('-')
+        || branch_name.contains('\r')
+        || branch_name.contains('\n')
+        || branch_name.contains(' ')
+    {
+        return Err("The Git branch is invalid.".to_string());
+    }
+    output_text(&run_git(
+        &root,
+        &[
+            "checkout".to_string(),
+            "-b".to_string(),
+            branch_name.to_string(),
+        ],
     )?)
 }
 
@@ -1087,7 +1179,7 @@ mod tests {
             run_test_git(&root, &["add", "README.md"])?;
             run_test_git(&root, &["commit", "-m", "initial"])?;
 
-            let base = branch(&root)?;
+            let base = branch(&root);
             assert_eq!(base, "main");
             let branch_name = "agent/comesade-test";
             let created = worktree_create(

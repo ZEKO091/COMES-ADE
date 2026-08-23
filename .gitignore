@@ -1,9 +1,13 @@
 node_modules/
+.vite-dev.pid
+.tauri-dev.pid
+.tauri-dev.log
 src-tauri/target/
 .DS_Store
 .env
 .env.*
 !.env.example
+.cursor/
 private_keys/
 *.p12
 *.pfx
