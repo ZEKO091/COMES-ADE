@@ -73,14 +73,30 @@ export APPLE_SIGNING_IDENTITY='Developer ID Application: Nombre legal (TEAMID)'
 export APPLE_API_KEY='KEY_ID'
 export APPLE_API_ISSUER='ISSUER_ID'
 export APPLE_API_KEY_PATH="$PWD/private_keys/AuthKey_${APPLE_API_KEY}.p8"
-npm run build:macos:signed
+npm run release:macos:signed
 ```
 
-En CI, `APPLE_CERTIFICATE` debe contener el `.p12` en Base64 y
-`APPLE_CERTIFICATE_PASSWORD` su contraseña. La clave `.p8` y el certificado se
-inyectan como secretos temporales; nunca se commitean. Para generar Intel y
-Apple Silicon se puede definir `TAURI_TARGET` como
-`x86_64-apple-darwin` o `aarch64-apple-darwin`.
+Sin notarización (solo build + DMG local para pruebas):
+
+```bash
+npm run release:macos
+```
+
+Artefactos estables en `releases/`:
+
+- `ComesADE-Setup-arm64.dmg` (Apple Silicon)
+- `ComesADE-Setup-x64.dmg` (Intel)
+
+En CI, el workflow `Signed desktop builds` genera ambos DMG al publicar un tag
+`v*` y los sube a GitHub Releases junto a `latest.json`. `APPLE_CERTIFICATE`
+debe contener el `.p12` en Base64 y `APPLE_CERTIFICATE_PASSWORD` su contraseña
+solo si usas el flujo firmado/notarizado local. La clave `.p8` y el certificado
+se inyectan como secretos temporales; nunca se committean. Para generar Intel y
+Apple Silicon se puede definir `TAURI_TARGET` como `x86_64-apple-darwin` o
+`aarch64-apple-darwin`.
+
+Desde Windows no se puede generar el instalador Mac: usa un Mac o el workflow
+de GitHub Actions.
 
 ## Actualizaciones firmadas
 

@@ -123,6 +123,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Verify updater signing configuration
         shell: bash
@@ -154,7 +156,7 @@ jobs:
                 fi
                 ;;
               *.dmg)
-                if [[ "$name" != *aarch64* && "$name" != *x86_64* ]]; then
+                if [[ "$name" != *aarch64* && "$name" != *x86_64* && "$name" != *arm64* ]]; then
                   name="${name%.dmg}_${TAURI_TARGET}.dmg"
                 fi
                 ;;
@@ -163,6 +165,23 @@ jobs:
             cp "$file" "$staging/$name"
           done < <(find src-tauri/target -type f \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) -print0)
           test -n "$(find "$staging" -type f -print -quit)"
+
+          # Stable installer aliases for GitHub Releases / in-app update fallback.
+          if [[ "$TAURI_TARGET" == "aarch64-apple-darwin" ]]; then
+            stable="ComesADE-Setup-arm64.dmg"
+          elif [[ "$TAURI_TARGET" == "x86_64-apple-darwin" ]]; then
+            stable="ComesADE-Setup-x64.dmg"
+          else
+            echo "TAURI_TARGET no soportado para alias estable: $TAURI_TARGET" >&2
+            exit 1
+          fi
+          source_dmg="$(find "$staging" -type f -name '*.dmg' | head -n 1)"
+          if [[ -z "$source_dmg" ]]; then
+            echo "No se encontró DMG en $staging" >&2
+            exit 1
+          fi
+          cp "$source_dmg" "$staging/$stable"
+          ls -la "$staging"
 
       - name: Upload macOS updater artifacts
         uses: actions/upload-artifact@v4
@@ -194,6 +213,25 @@ jobs:
 
       - name: Generate updater manifest
         run: node scripts/generate-updater-manifest.mjs --input release-artifacts --output release-artifacts/latest.json --repository "${{ github.repository }}" --tag "${{ github.ref_name }}"
+
+      - name: Flatten stable Mac installers
+        shell: bash
+        run: |
+          mkdir -p release-artifacts/macos-installers
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            case "$name" in
+              ComesADE-Setup-arm64.dmg|ComesADE-Setup-x64.dmg)
+                cp -f "$file" "release-artifacts/macos-installers/$name"
+                ;;
+            esac
+          done < <(find release-artifacts -type f -name 'ComesADE-Setup-*.dmg' -print0)
+          if ! find release-artifacts/macos-installers -type f -name 'ComesADE-Setup-*.dmg' | grep -q .; then
+            echo "Faltan instaladores Mac estables (ComesADE-Setup-arm64.dmg / ComesADE-Setup-x64.dmg)." >&2
+            find release-artifacts -type f -name '*.dmg' -print || true
+            exit 1
+          fi
+          ls -la release-artifacts/macos-installers
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2

@@ -65,6 +65,18 @@ Artefactos generados:
 - `src-tauri\target\release\comesade.exe`
 - `src-tauri\target\release\bundle\nsis\ComesADE_1.0.0_x64-setup.exe`
 
+En macOS el instalador es un DMG:
+
+```bash
+npm run release:macos
+```
+
+- `releases/ComesADE-Setup-arm64.dmg`
+- `releases/ComesADE-Setup-x64.dmg`
+
+Ese build debe ejecutarse en un Mac (o en GitHub Actions). Desde Windows no se
+genera el `.dmg`.
+
 Para preparar una versión distribuible y firmada, consulta
 [`docs/RELEASING.md`](docs/RELEASING.md). Nunca guardes certificados,
 contraseñas ni claves privadas dentro del proyecto.
