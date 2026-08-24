@@ -431,10 +431,7 @@ fn github_auth_status_for_client(client_id: &str) -> GithubAuthStatus {
             display_name: None,
             avatar_url: None,
             host: None,
-            error: Some(
-                "Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App."
-                    .to_string(),
-            ),
+            error: Some("github_client_id_missing".to_string()),
         };
     }
 
@@ -449,9 +446,7 @@ fn github_auth_status_for_client(client_id: &str) -> GithubAuthStatus {
                 display_name: None,
                 avatar_url: None,
                 host: None,
-                error: Some(
-                    "No hay una cuenta de GitHub conectada en este usuario de Windows.".to_string(),
-                ),
+                error: Some("github_not_connected".to_string()),
             };
         }
         Err(error) => {

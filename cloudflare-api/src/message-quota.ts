@@ -5,6 +5,7 @@ import {
   normalizeSpeechPlan,
   type SpeechPlanId,
 } from './speech-quota';
+import { isEntitlementActive } from './subscription-period';
 
 export const MESSAGE_PLAN_LIMITS = {
   starter: 1_000,
@@ -111,7 +112,7 @@ export async function messageQuotaForEmail(db: D1Database, email: string): Promi
       message: 'No hay una suscripción ComesADE ligada a esa cuenta.',
     };
   }
-  const active = ['active', 'trialing', 'trial', 'approved'].includes(row.status.toLowerCase());
+  const active = isEntitlementActive(row.status, row.subscription_id, row.next_billing_at);
   const plan = active ? normalizeSpeechPlan(row.plan_type) : 'none';
   if (!active || plan === 'none') {
     return {

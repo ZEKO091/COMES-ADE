@@ -109,6 +109,7 @@ struct ShellDefinition {
 #[serde(rename_all = "camelCase")]
 struct PlatformInfo {
     os: String,
+    arch: String,
     default_shell: String,
     default_shell_name: String,
 }
@@ -827,8 +828,19 @@ fn detect_shells() -> Vec<ShellDefinition> {
 fn platform_info() -> PlatformInfo {
     PlatformInfo {
         os: platform_name().to_string(),
+        arch: platform_arch().to_string(),
         default_shell: platform_default_shell_id(),
         default_shell_name: platform_default_shell_name(),
+    }
+}
+
+fn platform_arch() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else {
+        "unknown"
     }
 }
 
@@ -1070,6 +1082,81 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IpCountryInfo {
+    country: Option<String>,
+    country_name: Option<String>,
+}
+
+fn parse_cloudflare_trace_country(body: &str) -> Option<String> {
+    for line in body.lines() {
+        if let Some(code) = line.strip_prefix("loc=") {
+            let country = code.trim().to_ascii_uppercase();
+            if country.len() == 2 && country != "XX" && country != "T1" {
+                return Some(country);
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn detect_ip_country() -> Result<IpCountryInfo, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(6))
+        .user_agent("ComesADE/Desktop-Geo")
+        .build()
+        .map_err(|error| format!("No se pudo preparar la detección de IP: {error}"))?;
+
+    if let Ok(response) = client
+        .get("https://www.cloudflare.com/cdn-cgi/trace")
+        .send()
+    {
+        if response.status().is_success() {
+            if let Ok(body) = response.text() {
+                if let Some(country) = parse_cloudflare_trace_country(&body) {
+                    return Ok(IpCountryInfo {
+                        country: Some(country),
+                        country_name: None,
+                    });
+                }
+            }
+        }
+    }
+
+    if let Ok(response) = client.get("https://ipwho.is/").send() {
+        if response.status().is_success() {
+            if let Ok(value) = response.json::<serde_json::Value>() {
+                let success = value.get("success").and_then(|item| item.as_bool()) != Some(false);
+                let country = value
+                    .get("country_code")
+                    .and_then(|item| item.as_str())
+                    .map(|item| item.trim().to_ascii_uppercase())
+                    .filter(|item| item.len() == 2);
+                let country_name = value
+                    .get("country")
+                    .and_then(|item| item.as_str())
+                    .map(|item| item.trim().to_string())
+                    .filter(|item| !item.is_empty());
+                if success {
+                    if let Some(country) = country {
+                        return Ok(IpCountryInfo {
+                            country: Some(country),
+                            country_name,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(IpCountryInfo {
+        country: None,
+        country_name: None,
+    })
+}
+
 const GITHUB_UPDATE_DOWNLOAD_PREFIX: &str =
     "https://github.com/zeko091/comes-ade/releases/download/";
 
@@ -1087,7 +1174,10 @@ fn is_allowed_github_update_url(url: &str) -> bool {
     }
     let lower = trimmed.to_ascii_lowercase();
     lower.starts_with(GITHUB_UPDATE_DOWNLOAD_PREFIX)
-        && (lower.ends_with(".exe") || lower.ends_with(".msi"))
+        && (lower.ends_with(".exe")
+            || lower.ends_with(".msi")
+            || lower.ends_with(".dmg")
+            || lower.ends_with(".pkg"))
 }
 
 #[tauri::command]
@@ -1099,8 +1189,13 @@ fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String
         );
     }
 
-    let extension = if trimmed.to_ascii_lowercase().ends_with(".msi") {
+    let lower_url = trimmed.to_ascii_lowercase();
+    let extension = if lower_url.ends_with(".msi") {
         "msi"
+    } else if lower_url.ends_with(".dmg") {
+        "dmg"
+    } else if lower_url.ends_with(".pkg") {
+        "pkg"
     } else {
         "exe"
     };
@@ -1167,6 +1262,9 @@ fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String
 
     #[cfg(windows)]
     {
+        if extension == "dmg" || extension == "pkg" {
+            return Err("Este paquete de macOS no se puede instalar en Windows.".to_string());
+        }
         let mut command = if extension == "msi" {
             let mut msiexec = Command::new("msiexec");
             msiexec.args([
@@ -1188,10 +1286,22 @@ fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String
         return Ok(());
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        if extension != "dmg" && extension != "pkg" {
+            return Err("En macOS solo se admiten paquetes .dmg o .pkg.".to_string());
+        }
+        Command::new("open")
+            .arg(&target_path)
+            .spawn()
+            .map_err(|error| format!("No se pudo abrir el instalador de macOS: {error}"))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = std::fs::remove_file(&target_path);
-        Err("La instalación automática de actualizaciones solo está disponible en Windows."
+        Err("La instalación automática de actualizaciones no está disponible en esta plataforma."
             .to_string())
     }
 }
@@ -1996,6 +2106,7 @@ pub fn run() {
             close_session,
             reveal_path,
             open_external_url,
+            detect_ip_country,
             download_and_install_update
         ])
         .setup(|app| {

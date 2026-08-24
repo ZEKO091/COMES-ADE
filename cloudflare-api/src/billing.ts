@@ -1,6 +1,7 @@
 import { getRequestUser } from './auth';
 import { messageQuotaForEmail } from './message-quota';
 import { isAdminSpeechEmail, speechQuotaForEmail } from './speech-quota';
+import { isManualSubscriptionId, isPeriodExpired } from './subscription-period';
 
 type JsonFn = (data: unknown, status: number, request: Request, env: Env) => Response;
 
@@ -106,8 +107,16 @@ function productFromPlanId(env: BillingEnv, planId: string | null): string | nul
   return null;
 }
 
-function hasAccess(status: string): boolean {
-  return ACCESS_STATUSES.has(status.trim().toLowerCase());
+function hasAccess(
+  status: string,
+  subscriptionId?: string | null,
+  nextBillingAt?: string | null,
+): boolean {
+  const normalized = status.trim().toLowerCase();
+  if (!ACCESS_STATUSES.has(normalized)) return false;
+  if (isManualSubscriptionId(subscriptionId) && isPeriodExpired(nextBillingAt)) return false;
+  if (normalized === 'cancelled_to_end' && isPeriodExpired(nextBillingAt)) return false;
+  return true;
 }
 
 function adminPayload(email: string, userId: string) {
@@ -153,8 +162,9 @@ function billingPayload(row: BillingRow | null) {
   const amount = row.amount_value && row.currency_code
     ? { value: row.amount_value, currency_code: row.currency_code }
     : null;
+  const access = hasAccess(status, row.subscription_id, row.next_billing_at);
   return {
-    has_access: hasAccess(status),
+    has_access: access,
     provider: 'paypal',
     customer: {
       id: row.customer_id,

@@ -86,7 +86,7 @@ type WorkspaceFileChange = { root: string; kind: string; paths: string[] };
 type AgentDefinition = { id: string; name: string; executable: string; path: string | null; installed: boolean; args: string[]; environment: Record<string, string>; detectCommand: string | null };
 type CustomAgentDefinition = { id: string; name: string; executable: string; args: string[]; environment: Record<string, string> };
 type ShellDefinition = { id: string; name: string; executable: string; path: string | null; installed: boolean; isDefault?: boolean };
-type RuntimePlatform = { os: string; defaultShell: string; defaultShellName: string };
+type RuntimePlatform = { os: string; arch?: string; defaultShell: string; defaultShellName: string };
 type AppUpdate = NonNullable<Awaited<ReturnType<typeof check>>>;
 type GithubReleaseAsset = { name: string; browser_download_url: string };
 type GithubReleaseUpdate = {
@@ -588,8 +588,8 @@ function renderComesadeSurface(): void {
           <button class="active-workspace-card" id="active-workspace-card" type="button">
             <span class="workspace-card-icon">□</span>
             <span class="workspace-card-copy">
-              <strong id="active-workspace-name">Sin workspace</strong>
-              <small id="active-workspace-path">Abre una carpeta local</small>
+              <strong id="active-workspace-name" data-i18n="chrome.noWorkspace">Sin workspace</strong>
+              <small id="active-workspace-path" data-i18n="chrome.openFolderStart">Abre una carpeta local</small>
             </span>
             <span class="workspace-card-chevron">›</span>
           </button>
@@ -629,8 +629,8 @@ function renderComesadeSurface(): void {
         <main class="workspace-main view-overview">
           <header class="workspace-header" hidden>
             <div class="workspace-header-copy">
-              <span class="editor-breadcrumbs" id="workspace-header-path">Sin workspace</span>
-              <h1 id="workspace-heading" class="visually-hidden">Editor</h1>
+              <span class="editor-breadcrumbs" id="workspace-header-path" data-i18n="chrome.noWorkspace">Sin workspace</span>
+              <h1 id="workspace-heading" class="visually-hidden" data-i18n="chrome.noWorkspace">Editor</h1>
             </div>
             <div class="workspace-header-actions">
               <button class="header-button" id="open-workspace-menu" type="button" data-i18n="chrome.folder">Folder</button>
@@ -686,8 +686,8 @@ function renderComesadeSurface(): void {
                   <div class="workspace-summary-identity">
                     <span class="summary-project-icon">□</span>
                     <div>
-                      <strong id="workspace-summary-name">Sin workspace</strong>
-                      <small id="workspace-summary-path">Abre o crea una carpeta para comenzar.</small>
+                      <strong id="workspace-summary-name" data-i18n="chrome.noWorkspace">Sin workspace</strong>
+                      <small id="workspace-summary-path" data-i18n="chrome.openToStart">Abre o crea una carpeta para comenzar.</small>
                     </div>
                   </div>
 
@@ -695,17 +695,17 @@ function renderComesadeSurface(): void {
                     <button class="summary-metric" id="summary-sessions" type="button">
                       <span data-i18n="chrome.sessions">Sesiones</span>
                       <strong id="overview-session-count">0</strong>
-                      <small id="overview-active-label">READY</small>
+                      <small id="overview-active-label" data-i18n="chrome.ready">READY</small>
                     </button>
                     <button class="summary-metric" id="summary-runtime" type="button">
                       <span data-i18n="chrome.runtime">Runtime</span>
-                      <strong id="overview-runtime-status">LOCKED</strong>
-                      <small id="overview-shell">Sin shell</small>
+                      <strong id="overview-runtime-status" data-i18n="chrome.locked">LOCKED</strong>
+                      <small id="overview-shell" data-i18n="chrome.noShell">Sin shell</small>
                     </button>
                     <button class="summary-metric" id="summary-shell" type="button">
                       <span data-i18n="chrome.path">Path</span>
                       <strong id="overview-path-short">—</strong>
-                      <small id="overview-path-detail">Sin workspace</small>
+                      <small id="overview-path-detail" data-i18n="chrome.noWorkspace">Sin workspace</small>
                     </button>
                   </div>
 
@@ -721,7 +721,7 @@ function renderComesadeSurface(): void {
                       <span class="eyebrow" data-i18n="chrome.notesEyebrow">NOTES</span>
                       <h2 data-i18n="chrome.notesTitle">Notas rápidas</h2>
                     </div>
-                    <span class="panel-state" id="notes-status">LOCKED</span>
+                    <span class="panel-state" id="notes-status" data-i18n="chrome.locked">LOCKED</span>
                   </header>
                   <textarea id="notes-input" placeholder="Decisiones, comandos o contexto de este proyecto..." aria-label="Notas del workspace" data-i18n-placeholder="chrome.notesPh" data-i18n-aria="chrome.notesAria"></textarea>
                   <small class="panel-hint" data-i18n="chrome.notesHint">Se guardan localmente por workspace.</small>
@@ -865,7 +865,7 @@ function renderComesadeSurface(): void {
               <header class="terminal-area-header">
                 <div class="bottom-panel-tabs">
                   <button class="bottom-panel-tab is-active" type="button" data-i18n="chrome.terminal">Terminal</button>
-                  <small id="active-session-label">Sin sesión</small>
+                     <small id="active-session-label" data-i18n="chrome.noSession">Sin sesión</small>
                 </div>
                 <button class="icon-button" id="terminal-new" type="button" title="Nueva terminal" data-i18n-title="chrome.newTerminal">+</button>
               </header>
@@ -910,8 +910,8 @@ function renderComesadeSurface(): void {
               <div class="inspector-header-row">
                 <div>
                   <span class="eyebrow" data-i18n="chrome.explorer">EXPLORER</span>
-                  <strong id="inspector-workspace-title">Workspace</strong>
-                  <small id="file-tree-path">WORKSPACE</small>
+                   <strong id="inspector-workspace-title" data-i18n="chrome.workspace">Workspace</strong>
+                   <small id="file-tree-path" data-i18n="chrome.workspace">WORKSPACE</small>
                 </div>
                 <div class="inspector-header-actions">
                   <button class="icon-button" id="inspector-view-sort" type="button" title="Ordenar archivos" data-i18n-title="chrome.sortFiles">↕</button>
@@ -933,8 +933,8 @@ function renderComesadeSurface(): void {
 
             <section class="inspector-compat-pane" id="inspector-overview-pane" hidden>
               <span class="eyebrow" data-i18n="chrome.workspace">WORKSPACE</span>
-              <strong id="inspector-overview-name">Sin workspace</strong>
-              <small id="inspector-overview-path">Crea o abre un workspace.</small>
+               <strong id="inspector-overview-name" data-i18n="chrome.noWorkspace">Sin workspace</strong>
+               <small id="inspector-overview-path" data-i18n="chrome.createOrOpen">Crea o abre un workspace.</small>
               <div class="inspector-overview-facts">
                 <span><b id="inspector-overview-sessions">0</b> <span data-i18n="chrome.sessionsWord">sesiones</span></span>
                 <span><b id="inspector-overview-runtime">LOCKED</b></span>
@@ -945,7 +945,7 @@ function renderComesadeSurface(): void {
               <div class="inspector-pane-heading">
                 <div>
                   <span class="eyebrow" data-i18n="chrome.gitStatus">GIT STATUS</span>
-                  <strong id="inspector-git-branch">NO REPOSITORY</strong>
+                  <strong id="inspector-git-branch" data-i18n="chrome.noRepo">NO REPOSITORY</strong>
                 </div>
                 <button class="icon-button" id="inspector-git-refresh" type="button" title="Actualizar Git" data-i18n-title="chrome.refreshGit">↻</button>
               </div>
@@ -984,28 +984,28 @@ function renderComesadeSurface(): void {
         <div class="github-auth-heading">
           <span class="github-account-icon">${icons.github}</span>
           <div>
-            <span class="eyebrow" data-i18n="chrome.githubEyebrow">COMESADE / GITHUB</span>
-            <h1 id="github-auth-title" data-i18n="chrome.githubOptional">Conecta GitHub si quieres clonar</h1>
+            <span class="eyebrow" id="github-auth-eyebrow" data-i18n="chrome.githubRequiredEyebrow">COMESADE / REQUIRED ACCESS</span>
+            <h1 id="github-auth-title" data-i18n="chrome.githubRequiredTitle">Connect GitHub to continue</h1>
           </div>
         </div>
-        <p class="github-auth-copy" id="github-auth-copy" data-i18n="chrome.githubCopy">GitHub es opcional. El IDE funciona en local; conéctalo solo para clonar o publicar repositorios. Las cuentas de agentes se conectan en Cuentas AI.</p>
+        <p class="github-auth-copy" id="github-auth-copy" data-i18n="chrome.githubRequiredCopy">ComesADE needs you to connect your real GitHub account before opening the desktop. The credential is stored in this system’s secure store.</p>
         <div class="github-auth-status" role="status" aria-live="polite">
           <span class="github-auth-status-dot" id="github-auth-status-dot"></span>
-          <span><strong id="github-auth-status-title" data-i18n="chrome.githubCheckingTitle">Comprobando conexion</strong><small id="github-auth-status-detail" data-i18n="chrome.githubCheckingDetail">Verificando la autorizacion de GitHub...</small></span>
+          <span><strong id="github-auth-status-title" data-i18n="chrome.githubCheckingTitle">Checking connection</strong><small id="github-auth-status-detail" data-i18n="chrome.githubCheckingDetail">Verifying GitHub authorization...</small></span>
         </div>
         <div class="github-auth-device-code" id="github-auth-device-code" hidden aria-live="polite">
           <div class="github-auth-device-code-copy">
             <span class="eyebrow" data-i18n="chrome.githubDevice">GITHUB DEVICE CODE</span>
-            <span class="github-auth-device-code-label" data-i18n="chrome.githubDeviceLabel">Codigo que debes introducir en GitHub</span>
-            <code id="github-auth-device-code-value" aria-label="Codigo de autorizacion de GitHub" data-i18n-aria="chrome.githubAuthCode"></code>
+            <span class="github-auth-device-code-label" data-i18n="chrome.githubDeviceLabel">Code to enter on GitHub</span>
+            <code id="github-auth-device-code-value" aria-label="GitHub authorization code" data-i18n-aria="chrome.githubAuthCode"></code>
           </div>
         </div>
         <small class="github-auth-device-warning" id="github-auth-device-warning" hidden></small>
         <div class="github-auth-actions">
-          <button class="primary-button" id="github-auth-connect" type="button">${icons.github}<span data-i18n="chrome.githubConnect">Conectar GitHub</span></button>
-          <button class="secondary-button" id="github-auth-check" type="button" data-i18n="chrome.githubAlready">Ya estoy conectado</button>
+          <button class="primary-button" id="github-auth-connect" type="button">${icons.github}<span data-i18n="chrome.githubConnect">Connect GitHub</span></button>
+          <button class="secondary-button" id="github-auth-check" type="button" data-i18n="chrome.githubAlready">I already connected</button>
         </div>
-        <small class="github-auth-note" id="github-auth-note" data-i18n="chrome.githubNote">Se abrira el flujo oficial de autorizacion de GitHub en tu navegador.</small>
+        <small class="github-auth-note" id="github-auth-note" data-i18n="chrome.githubNote">The official GitHub authorization flow will open in your browser.</small>
       </section>
     </div>
     <div id="modal-root"></div>
@@ -1033,7 +1033,7 @@ if (terminalAreaMount && !document.querySelector('#developer-dock')) {
   const dock = document.createElement('section');
   dock.className = 'developer-dock';
   dock.id = 'developer-dock';
-  dock.innerHTML = '<section class="editor-panel panel"><header class="dock-header"><div><strong id="editor-file-name">No file open</strong><small id="editor-file-path">Selecciona un archivo real</small></div><div class="dock-actions"><span id="editor-save-status" class="muted-label">CLEAN</span><button class="secondary-button" id="editor-save" type="button">' + icons.note + '<span data-i18n="chrome.saveFile">Save</span></button></div></header><div class="editor-tabs" id="editor-tabs" role="tablist" aria-label="Archivos abiertos" data-i18n-aria="chrome.openFiles"></div><textarea id="editor-content" class="code-editor" spellcheck="false" disabled placeholder="Selecciona un archivo del proyecto." data-i18n-placeholder="chrome.selectFilePh"></textarea></section><div class="developer-dock-resizer" id="developer-dock-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionar Editor y Git" title="Redimensionar Editor y Git" tabindex="0" data-i18n-aria="chrome.resizeEditorGit" data-i18n-title="chrome.resizeEditorGit"></div><aside class="git-panel panel"><header class="dock-header"><div><strong data-i18n="chrome.git">Git</strong><small id="git-branch">NO REPOSITORY</small></div><button class="icon-button" id="git-refresh" title="Refresh Git" data-i18n-title="chrome.refreshGit">' + icons.refresh + '</button></header><div class="git-list" id="git-list"><div class="dock-empty" data-i18n="chrome.gitEmpty">El workspace no tiene status Git cargado.</div></div><pre class="git-diff" id="git-diff">Selecciona un cambio para ver el diff real.</pre><div class="git-commit-row"><input class="field-input" id="git-commit-message" placeholder="Commit message" data-i18n-placeholder="chrome.commitMessage"/><button class="primary-button" id="git-commit" type="button" data-i18n="chrome.commit">Commit</button></div></aside>';
+  dock.innerHTML = '<section class="editor-panel panel"><header class="dock-header"><div><strong id="editor-file-name" data-i18n="chrome.noFile">No file open</strong><small id="editor-file-path" data-i18n="chrome.selectFile">Selecciona un archivo real</small></div><div class="dock-actions"><span id="editor-save-status" class="muted-label">CLEAN</span><button class="secondary-button" id="editor-save" type="button">' + icons.note + '<span data-i18n="chrome.saveFile">Save</span></button></div></header><div class="editor-tabs" id="editor-tabs" role="tablist" aria-label="Archivos abiertos" data-i18n-aria="chrome.openFiles"></div><textarea id="editor-content" class="code-editor" spellcheck="false" disabled placeholder="Selecciona un archivo del proyecto." data-i18n-placeholder="chrome.selectFilePh"></textarea></section><div class="developer-dock-resizer" id="developer-dock-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionar Editor y Git" title="Redimensionar Editor y Git" tabindex="0" data-i18n-aria="chrome.resizeEditorGit" data-i18n-title="chrome.resizeEditorGit"></div><aside class="git-panel panel"><header class="dock-header"><div><strong data-i18n="chrome.git">Git</strong><small id="git-branch" data-i18n="chrome.noRepo">NO REPOSITORY</small></div><button class="icon-button" id="git-refresh" title="Refresh Git" data-i18n-title="chrome.refreshGit">' + icons.refresh + '</button></header><div class="git-list" id="git-list"><div class="dock-empty" data-i18n="chrome.gitEmpty">El workspace no tiene status Git cargado.</div></div><pre class="git-diff" id="git-diff" data-i18n="chrome.gitDiffHint">Selecciona un cambio para ver el diff real.</pre><div class="git-commit-row"><input class="field-input" id="git-commit-message" placeholder="Commit message" data-i18n-placeholder="chrome.commitMessage"/><button class="primary-button" id="git-commit" type="button" data-i18n="chrome.commit">Commit</button></div></aside>';
   terminalAreaMount.before(dock);
 }
 const workspaceMainMount = document.querySelector<HTMLElement>('.workspace-main');
@@ -1064,7 +1064,7 @@ if (document.querySelector('#app-body') && !document.querySelector('#composer-ra
   const rail = document.createElement('aside');
   rail.className = 'composer-rail';
   rail.id = 'composer-rail';
-  rail.setAttribute('aria-label', 'Chat');
+  rail.setAttribute('aria-label', t('chrome.chat'));
   document.querySelector('#app-body')!.appendChild(rail);
 }
 if (toolsViewMount) toolsViewMount.classList.remove('browser-rail');
@@ -1220,7 +1220,7 @@ async function setupMonacoEditor(): Promise<void> {
           tab.dirty = true;
         }
         renderEditorTabs();
-        editorSaveStatus.textContent = 'DIRTY';
+  editorSaveStatus.textContent = t('chrome.dirty');
       });
       syncingInitialEditorValue = false;
       codeEditor.addCommand(monacoModule.KeyMod.CtrlCmd | monacoModule.KeyCode.KeyS, () => { void saveWorkspaceFile(); });
@@ -1867,6 +1867,9 @@ const modalRoot = document.querySelector<HTMLDivElement>('#modal-root')!;
 const accountMenuRoot = document.querySelector<HTMLDivElement>('#account-menu-root')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
 const githubAuthGate = document.querySelector<HTMLElement>('#github-auth-gate')!;
+const githubAuthEyebrow = document.querySelector<HTMLElement>('#github-auth-eyebrow')!;
+const githubAuthTitle = document.querySelector<HTMLElement>('#github-auth-title')!;
+const githubAuthCopy = document.querySelector<HTMLElement>('#github-auth-copy')!;
 const githubAuthConnectButton = document.querySelector<HTMLButtonElement>('#github-auth-connect')!;
 const githubAuthCheckButton = document.querySelector<HTMLButtonElement>('#github-auth-check')!;
 const githubAuthStatusDot = document.querySelector<HTMLElement>('#github-auth-status-dot')!;
@@ -2131,6 +2134,46 @@ function effortLabel(effort: string): string {
   return EFFORT_LABELS[effort] ?? effort;
 }
 
+const MODEL_HINT_KEYS: Record<string, string> = {
+  'detalle y razonamiento': 'detailReasoning',
+  'trabajo diario': 'daily',
+  'rapido y claro': 'fastClear',
+  'familia anterior': 'previousFamily',
+  'hasta el 31 ago': 'untilAug31',
+  razonamiento: 'reasoning',
+  'razonamiento rapido': 'fastReasoning',
+  'sin variantes': 'noVariants',
+  actual: 'current',
+  anterior: 'previous',
+  velocidad: 'speed',
+  estable: 'stable',
+  ligero: 'light',
+  rapido: 'fast',
+  clasico: 'classic',
+  'maxima capacidad': 'maxCapacity',
+  'equilibrio nuevo': 'newBalance',
+  'opus anterior': 'previousOpus',
+  'thinking clasico': 'classicThinking',
+  'actual rapido': 'currentFast',
+  'pro anterior': 'previousPro',
+  'flash anterior': 'previousFlash',
+  minimo: 'minimum',
+  legacy: 'legacy',
+  general: 'general',
+  'razonamiento interno': 'internalReasoning',
+  'contexto largo': 'longContext',
+  estandar: 'standard',
+  equilibrio: 'balance',
+  codigo: 'code',
+  'elige proveedor': 'pickProvider',
+};
+
+function modelHintLabel(hint: string): string {
+  const normalized = hint.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const key = MODEL_HINT_KEYS[normalized];
+  return key ? t(`model.hint.${key}`) : hint;
+}
+
 function selectedModelChoice(account: ProviderStatus | undefined): { option: AgentModelOption; effort: string } | null {
   const models = modelsForProvider(account);
   if (!models.length || !account) return null;
@@ -2182,8 +2225,8 @@ function renderComposerModel(): void {
     nativeAgentModel.hidden = true;
     nativeAgentEfforts.hidden = true;
     nativeAgentEfforts.innerHTML = '';
-    nativeAgentModelLabel.textContent = 'Modelo';
-    nativeAgentModel.title = 'Conecta una cuenta para elegir modelo';
+    nativeAgentModelLabel.textContent = t('chrome.model');
+    nativeAgentModel.title = t('chrome.modelNoAccount');
     syncComposerPlaceholder();
     renderComposerUsage();
     return;
@@ -2747,7 +2790,7 @@ function openModelPicker(slot: 'a' | 'b' = 'a'): void {
           return `<button type="button" class="model-effort-chip${current ? ' is-selected' : ''}" data-model-id="${escapeHtml(model.id)}" data-effort="${escapeHtml(effort)}" aria-pressed="${current ? 'true' : 'false'}">${escapeHtml(effortLabel(effort))}</button>`;
         }).join('')}</div>`
       : '';
-    return `<div class="model-picker-group${currentModel ? ' is-selected' : ''}"><button type="button" class="model-picker-name${currentModel ? ' is-selected' : ''}" data-model-id="${escapeHtml(model.id)}" data-select-model="1" role="option" aria-selected="${currentModel ? 'true' : 'false'}"><span><strong>${escapeHtml(model.label)}</strong><small>${escapeHtml(model.hint)}${currentModel && model.efforts.length ? ` · ${effortLabel(selected.effort)}` : ''}</small></span>${currentModel ? '<em>ACTUAL</em>' : ''}</button>${effortRow}</div>`;
+    return `<div class="model-picker-group${currentModel ? ' is-selected' : ''}"><button type="button" class="model-picker-name${currentModel ? ' is-selected' : ''}" data-model-id="${escapeHtml(model.id)}" data-select-model="1" role="option" aria-selected="${currentModel ? 'true' : 'false'}"><span><strong>${escapeHtml(model.label)}</strong><small>${escapeHtml(modelHintLabel(model.hint))}${currentModel && model.efforts.length ? ` · ${effortLabel(selected.effort)}` : ''}</small></span>${currentModel ? `<em>${escapeHtml(t('chrome.splitCurrent'))}</em>` : ''}</button>${effortRow}</div>`;
   }).join('');
   document.body.appendChild(menu);
   const rect = modelBtn.getBoundingClientRect();
@@ -4651,11 +4694,45 @@ type ApiReadyPayload = {
   workspaces?: string;
 };
 
+function localizeGithubAuthError(error: string | null | undefined): string | null {
+  if (!error) return null;
+  const raw = error.trim();
+  if (!raw) return null;
+  if (
+    raw === 'github_not_connected'
+    || raw.includes('No hay una cuenta de GitHub conectada')
+    || raw.includes('no GitHub account connected')
+  ) {
+    return runtimePlatform.os === 'windows'
+      ? t('chrome.githubRequiredDetail')
+      : t('chrome.githubRequiredDetailGeneric');
+  }
+  if (
+    raw === 'github_client_id_missing'
+    || raw.includes('VITE_GITHUB_CLIENT_ID')
+  ) {
+    return t('chrome.githubClientIdConfig');
+  }
+  if (raw.startsWith('github_check_failed:')) {
+    return t('chrome.githubCheckFailed', { error: raw.slice('github_check_failed:'.length).trim() || raw });
+  }
+  if (raw.startsWith('No se pudo comprobar GitHub:')) {
+    return t('chrome.githubCheckFailed', { error: raw.replace(/^No se pudo comprobar GitHub:\s*/, '') });
+  }
+  if (raw.startsWith('github_browser_fail:')) {
+    return t('chrome.githubBrowserFail', { error: raw.slice('github_browser_fail:'.length).trim() || raw });
+  }
+  if (raw.startsWith('No se pudo abrir el navegador:')) {
+    return t('chrome.githubBrowserFail', { error: raw.replace(/^No se pudo abrir el navegador:\s*/, '') });
+  }
+  return raw;
+}
+
 function renderGithubAuthState(): void {
   const connected = githubAuth.connected;
   const account = githubAuth.login ? `@${githubAuth.login}` : 'GitHub';
-  githubAuthGate.hidden = true;
-  githubAuthGate.setAttribute('aria-hidden', 'true');
+  githubAuthGate.hidden = connected;
+  githubAuthGate.setAttribute('aria-hidden', String(connected));
   githubAccountCard.classList.toggle('is-connected', connected);
   githubAccountDot.classList.toggle('is-connected', connected);
   githubAccountDot.classList.toggle('is-error', !connected && !githubAuthBusy);
@@ -4681,6 +4758,12 @@ function renderGithubAuthState(): void {
   githubAuthDeviceWarning.hidden = !hasDeviceAuthorization;
   githubAuthDeviceWarning.textContent = t('chrome.deviceWarning');
 
+  if (!connected) {
+    githubAuthEyebrow.textContent = t('chrome.githubRequiredEyebrow');
+    githubAuthTitle.textContent = t('chrome.githubRequiredTitle');
+    githubAuthCopy.textContent = t('chrome.githubRequiredCopy');
+  }
+
   if (connected) {
     githubAuthStatusTitle.textContent = t('chrome.githubConnected');
     githubAuthStatusDetail.textContent = t('chrome.activeAccount', { account });
@@ -4699,12 +4782,13 @@ function renderGithubAuthState(): void {
   }
   if (!githubAuth.oauthConfigured) {
     githubAuthStatusTitle.textContent = t('chrome.githubOauthMissing');
-    githubAuthStatusDetail.textContent = githubAuth.error ?? t('chrome.githubMissingClient');
+    githubAuthStatusDetail.textContent = localizeGithubAuthError(githubAuth.error) ?? t('chrome.githubMissingClient');
     githubAuthNote.textContent = t('chrome.githubConfigureVite');
     return;
   }
-  githubAuthStatusTitle.textContent = t('chrome.githubOptionalTitle');
-  githubAuthStatusDetail.textContent = githubAuth.error ?? t('chrome.githubNoAccount');
+  githubAuthStatusTitle.textContent = t('chrome.githubRequiredStatus');
+  githubAuthStatusDetail.textContent = localizeGithubAuthError(githubAuth.error)
+    ?? (runtimePlatform.os === 'windows' ? t('chrome.githubRequiredDetail') : t('chrome.githubRequiredDetailGeneric'));
   githubAuthNote.textContent = t('chrome.githubNote');
 }
 
@@ -4723,7 +4807,7 @@ async function refreshGithubAuth(): Promise<GithubAuthStatus> {
           displayName: null,
           avatarUrl: null,
           host: null,
-          error: 'Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App.',
+          error: 'github_client_id_missing',
         };
       } else {
         githubAuth = await invoke<GithubAuthStatus>('github_auth_status', { clientId: GITHUB_CLIENT_ID });
@@ -4740,7 +4824,7 @@ async function refreshGithubAuth(): Promise<GithubAuthStatus> {
         displayName: null,
         avatarUrl: null,
         host: null,
-        error: `No se pudo comprobar GitHub: ${String(error)}`,
+        error: `github_check_failed:${String(error)}`,
       };
     } finally {
       renderGithubAuthState();
@@ -4758,14 +4842,10 @@ async function connectGithubAccount(): Promise<void> {
       ...githubAuth,
       connected: false,
       oauthConfigured: false,
-      error: 'Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App.',
+      error: 'github_client_id_missing',
     };
     renderGithubAuthState();
-    showToast(
-      githubAuth.error ??
-        'Configura VITE_GITHUB_CLIENT_ID con el Client ID real de tu GitHub App.',
-      true,
-    );
+    showToast(t('chrome.githubClientIdConfig'), true);
     return;
   }
   githubAuthBusy = true;
@@ -4779,7 +4859,7 @@ async function connectGithubAccount(): Promise<void> {
     try {
       await invoke('open_external_url', { url: device.verificationUri });
     } catch (error) {
-      githubAuth.error = `No se pudo abrir el navegador: ${String(error)}`;
+      githubAuth.error = `github_browser_fail:${String(error)}`;
       renderGithubAuthState();
     }
 
@@ -4798,11 +4878,11 @@ async function connectGithubAccount(): Promise<void> {
         break;
       }
       if (poll.status === 'error') {
-        throw new Error(poll.error ?? 'GitHub no pudo completar la autorizacion.');
+        throw new Error(poll.error ?? t('toast.githubConnectFail'));
       }
       intervalSeconds = Math.max(5, poll.interval || intervalSeconds);
     }
-    if (!connectedAuth) throw new Error('El codigo de autorizacion de GitHub expiro.');
+    if (!connectedAuth) throw new Error(t('chrome.githubCodeExpired'));
     githubAuth = connectedAuth;
     githubRepositoriesLoaded = false;
     showToast(t('toast.githubConnected', { user: githubAuth.login ?? t('toast.userFallback') }));
@@ -4814,7 +4894,7 @@ async function connectGithubAccount(): Promise<void> {
       connected: false,
       error: error instanceof Error ? error.message : String(error),
     };
-    showToast(githubAuth.error ?? t('toast.githubConnectFail'), true);
+    showToast(localizeGithubAuthError(githubAuth.error) ?? t('toast.githubConnectFail'), true);
   } finally {
     githubAuthBusy = false;
     githubDeviceAuthorization = null;
@@ -4828,7 +4908,7 @@ async function checkGithubAccount(): Promise<void> {
     await finishAuthorizedStartup();
     return;
   }
-    showToast(status.error ?? t('toast.githubStillOff'), true);
+  showToast(localizeGithubAuthError(status.error) ?? t('toast.githubStillOff'), true);
 }
 
 function formatGithubDate(value: string | null): string {
@@ -4845,12 +4925,12 @@ function renderGithubRepositoryList(search = '', selectedFullName = ''): void {
 
   if (account) {
     account.textContent = githubAuth.connected
-      ? `Cuenta activa: @${githubAuth.login ?? 'usuario'}`
-      : githubAuth.error ?? 'Conecta GitHub para consultar tus repositorios.';
+      ? t('chrome.githubAccountActive', { login: githubAuth.login ?? t('toast.userFallback') })
+      : githubAuth.error ?? t('chrome.githubConnectToList');
   }
 
   if (githubRepositoriesLoading) {
-    list.innerHTML = '<div class="github-repository-state">Consultando repositorios reales de GitHub…</div>';
+    list.innerHTML = `<div class="github-repository-state">${escapeHtml(t('chrome.githubLoadingRepositories'))}</div>`;
     return;
   }
   if (githubRepositoriesError) {
@@ -4858,7 +4938,7 @@ function renderGithubRepositoryList(search = '', selectedFullName = ''): void {
     return;
   }
   if (!githubRepositoriesLoaded) {
-    list.innerHTML = '<div class="github-repository-state">Pulsa actualizar para consultar los repositorios de esta cuenta.</div>';
+    list.innerHTML = `<div class="github-repository-state">${escapeHtml(t('chrome.githubRefreshRepositories'))}</div>`;
     return;
   }
 
@@ -4870,21 +4950,21 @@ function renderGithubRepositoryList(search = '', selectedFullName = ''): void {
   });
   if (!repositories.length) {
     list.innerHTML = githubRepositories.length
-      ? '<div class="github-repository-state">No hay repositorios que coincidan con la búsqueda.</div>'
-      : '<div class="github-repository-state">Esta cuenta no tiene repositorios visibles. Instala la GitHub App de ComesADE y concede acceso a tus repos reales (públicos y privados).</div>';
+      ? `<div class="github-repository-state">${escapeHtml(t('chrome.githubNoMatches'))}</div>`
+      : `<div class="github-repository-state">${escapeHtml(t('chrome.githubNoRepositories'))}</div>`;
     return;
   }
 
   list.innerHTML = repositories.map((repository) => {
     const selected = repository.fullName === selectedFullName;
     const visibility = repository.private ? 'PRIVATE' : 'PUBLIC';
-    const flags = [visibility, repository.fork ? 'FORK' : '', repository.archived ? 'ARCHIVED' : '']
+    const flags = [visibility, repository.fork ? t('menu.githubFork') : '', repository.archived ? t('menu.githubArchived') : '']
       .filter(Boolean)
       .join(' · ');
     const updated = formatGithubDate(repository.updatedAt);
     return `<button class="github-repository-row${selected ? ' is-selected' : ''}" data-github-repository="${escapeHtml(repository.fullName)}" type="button" role="option" aria-selected="${String(selected)}">
       <span class="github-repository-mark">${icons.folder}</span>
-      <span class="github-repository-copy"><strong>${escapeHtml(repository.fullName)}</strong><small>${escapeHtml(repository.description || 'Sin descripción')}</small></span>
+      <span class="github-repository-copy"><strong>${escapeHtml(repository.fullName)}</strong><small>${escapeHtml(repository.description || t('chrome.githubNoDescription'))}</small></span>
       <span class="github-repository-meta"><i>${escapeHtml(flags)}</i><small>${escapeHtml(repository.defaultBranch ? `↳ ${repository.defaultBranch}` : '')}${updated ? ` · ${escapeHtml(updated)}` : ''}</small></span>
     </button>`;
   }).join('');
@@ -4908,7 +4988,7 @@ async function loadGithubRepositories(force = false): Promise<void> {
     try {
       const status = await refreshGithubAuth();
       if (!status.connected) {
-        throw new Error(status.error ?? 'Conecta GitHub para consultar repositorios.');
+        throw new Error(status.error ?? t('chrome.githubConnectToList'));
       }
       githubRepositories = await invoke<GithubRepository[]>('github_repositories', { clientId: GITHUB_CLIENT_ID });
       githubRepositoriesLoaded = true;
@@ -4993,7 +5073,7 @@ function githubRepositoryRowsHtml(search = '', selectedFullName = ''): string {
   return repositories.map((repository) => {
     const selected = repository.fullName === selectedFullName;
     const visibility = repository.private ? t('menu.githubPrivate') : t('menu.githubPublic');
-    const flags = [visibility, repository.fork ? 'FORK' : '', repository.archived ? 'ARCHIVED' : '']
+    const flags = [visibility, repository.fork ? t('menu.githubFork') : '', repository.archived ? t('menu.githubArchived') : '']
       .filter(Boolean)
       .join(' · ');
     const updated = formatGithubDate(repository.updatedAt);
@@ -5168,10 +5248,10 @@ function syncWindowControls(): void {
 
 function inferRuntimePlatform(): RuntimePlatform {
   const os = inferWindowChromeOs();
-  if (os === 'macos') return { os: 'macos', defaultShell: 'zsh', defaultShellName: 'Zsh' };
-  if (os === 'windows') return { os: 'windows', defaultShell: 'powershell', defaultShellName: 'PowerShell' };
-  if (os === 'linux') return { os: 'linux', defaultShell: 'bash', defaultShellName: 'Bash' };
-  return { os: 'unknown', defaultShell: 'sh', defaultShellName: 'Shell' };
+  if (os === 'macos') return { os: 'macos', arch: undefined, defaultShell: 'zsh', defaultShellName: 'Zsh' };
+  if (os === 'windows') return { os: 'windows', arch: undefined, defaultShell: 'powershell', defaultShellName: 'PowerShell' };
+  if (os === 'linux') return { os: 'linux', arch: undefined, defaultShell: 'bash', defaultShellName: 'Bash' };
+  return { os: 'unknown', arch: undefined, defaultShell: 'sh', defaultShellName: 'Shell' };
 }
 
 let runtimePlatform: RuntimePlatform = inferRuntimePlatform();
@@ -5522,6 +5602,35 @@ function isGithubReleaseAsset(value: unknown): value is GithubReleaseAsset {
   return typeof asset.name === 'string' && typeof asset.browser_download_url === 'string';
 }
 
+function pickGithubReleaseInstaller(assets: GithubReleaseAsset[]): GithubReleaseAsset | undefined {
+  const lower = (name: string) => name.toLowerCase();
+  if (runtimePlatform.os === 'macos') {
+    const preferArm = (runtimePlatform.arch ?? '').includes('aarch64') || (runtimePlatform.arch ?? '').includes('arm');
+    const preferIntel = (runtimePlatform.arch ?? '').includes('x86_64') || (runtimePlatform.arch ?? '') === 'x64';
+    const dmgAssets = assets.filter((asset) => lower(asset.name).endsWith('.dmg'));
+    if (preferArm) {
+      return dmgAssets.find((asset) => asset.name === 'ComesADE-Setup-arm64.dmg')
+        ?? dmgAssets.find((asset) => lower(asset.name).includes('aarch64') || lower(asset.name).includes('arm64'))
+        ?? dmgAssets.find((asset) => asset.name === 'ComesADE-Setup.dmg')
+        ?? dmgAssets[0];
+    }
+    if (preferIntel) {
+      return dmgAssets.find((asset) => asset.name === 'ComesADE-Setup-x64.dmg')
+        ?? dmgAssets.find((asset) => lower(asset.name).includes('x86_64') || lower(asset.name).includes('x64'))
+        ?? dmgAssets.find((asset) => asset.name === 'ComesADE-Setup.dmg')
+        ?? dmgAssets[0];
+    }
+    return dmgAssets.find((asset) => asset.name === 'ComesADE-Setup-arm64.dmg')
+      ?? dmgAssets.find((asset) => asset.name === 'ComesADE-Setup.dmg')
+      ?? dmgAssets[0]
+      ?? assets.find((asset) => lower(asset.name).endsWith('.pkg'));
+  }
+
+  return assets.find((asset) => asset.name === 'ComesADE-Setup.exe')
+    ?? assets.find((asset) => lower(asset.name).endsWith('_x64-setup.exe'))
+    ?? assets.find((asset) => lower(asset.name).endsWith('.exe'));
+}
+
 async function checkGithubReleaseUpdate(): Promise<GithubReleaseUpdate | null> {
   const currentVersion = await getVersion();
   const controller = new AbortController();
@@ -5554,9 +5663,7 @@ async function checkGithubReleaseUpdate(): Promise<GithubReleaseUpdate | null> {
     if (compareReleaseVersions(remoteVersion, localVersion) <= 0) return null;
 
     const assets = Array.isArray(release.assets) ? release.assets.filter(isGithubReleaseAsset) : [];
-    const installer = assets.find((asset) => asset.name === 'ComesADE-Setup.exe')
-      ?? assets.find((asset) => asset.name.toLowerCase().endsWith('_x64-setup.exe'))
-      ?? assets.find((asset) => asset.name.toLowerCase().endsWith('.exe'));
+    const installer = pickGithubReleaseInstaller(assets);
 
     return {
       source: 'github',
@@ -5719,7 +5826,7 @@ async function installAppUpdate(): Promise<void> {
   const update = availableAppUpdate;
   if (!update || appUpdateInstalling) return;
   if (isGithubReleaseUpdate(update)) {
-    const canInstallLocally = /\.(exe|msi)(\?|$)/i.test(update.downloadUrl);
+    const canInstallLocally = /\.(exe|msi|dmg|pkg)(\?|$)/i.test(update.downloadUrl);
     if (!canInstallLocally) {
       appUpdateInstalling = true;
       renderUpdateButton();
@@ -5771,7 +5878,8 @@ async function installAppUpdate(): Promise<void> {
       appUpdateInstalling = false;
       renderUpdateButton();
       updateInstallProgress(t('chrome.updateInstalledRestarting'));
-      showToast(t('toast.updateInstallingNow'));
+      const isMacPackage = /\.(dmg|pkg)(\?|$)/i.test(update.downloadUrl);
+      showToast(t(isMacPackage ? 'toast.updateMacOpened' : 'toast.updateInstallingNow'));
     } catch (error) {
       appUpdateInstalling = false;
       renderUpdateButton();
@@ -6951,6 +7059,15 @@ function applyAppLanguage(): void {
   }
   const hint = document.querySelector('#settings-language-hint');
   if (hint) hint.textContent = languageStatusText();
+  const settingsUpdateStatus = document.querySelector('#settings-update-status');
+  if (settingsUpdateStatus) {
+    settingsUpdateStatus.textContent = availableAppUpdate
+      ? t('settings.updateAvailable', { version: availableAppUpdate.version })
+      : t('settings.updateNone');
+  }
+  const settingsBack = document.querySelector<HTMLButtonElement>('#settings-back');
+  if (settingsBack) settingsBack.textContent = mainMenuOpen ? t('common.backMenu') : t('common.close');
+  if (document.querySelector('.settings-modal')) renderSettingsAccounts();
   document.querySelectorAll<HTMLButtonElement>('#settings-language-choices [data-language]').forEach((item) => {
     const value = item.dataset.language ?? '';
     if (value === 'auto') item.textContent = t('lang.autoShort');
@@ -6975,7 +7092,8 @@ function applyAppLanguage(): void {
 async function refreshAppLanguage(options: { waitForIp?: boolean } = {}): Promise<void> {
   const device = readDeviceLocale();
   setLocaleSignals({ deviceTag: device.tag, deviceLocale: device.locale });
-  if (options.waitForIp && appSettings.uiLanguage === 'auto') {
+  const preference = languagePreferenceDraft ?? appSettings.uiLanguage;
+  if (options.waitForIp && preference === 'auto') {
     const ip = await detectIpLocale();
     setLocaleSignals({ ipCountry: ip.country, ipCountryName: ip.countryName, ipLocale: ip.locale });
   }
@@ -7424,8 +7542,9 @@ function applyLayout(): void {
   if (sidebarToggle) {
     const sidebarVisible = !layoutState.sidebarCollapsed;
     sidebarToggle.setAttribute('aria-expanded', String(sidebarVisible));
-    sidebarToggle.setAttribute('aria-label', sidebarVisible ? 'Ocultar la barra lateral' : 'Mostrar la barra lateral');
-    sidebarToggle.title = sidebarVisible ? 'Ocultar la barra lateral' : 'Mostrar la barra lateral';
+    const sidebarLabel = sidebarVisible ? t('chrome.hideSidebar') : t('chrome.showSidebar');
+    sidebarToggle.setAttribute('aria-label', sidebarLabel);
+    sidebarToggle.title = sidebarLabel;
     sidebarToggle.innerHTML = sidebarVisible ? icons.close : icons.menu;
   }
   workspaceMain?.classList.remove('view-overview', 'view-asa', 'view-terminals', 'view-tools');
@@ -7485,22 +7604,22 @@ function notesStore(): Record<string, string> {
 function loadNotes(): void {
   if (notesLoadedWorkspaceId === activeWorkspaceId) return;
   notesInput.value = activeWorkspaceId ? notesStore()[activeWorkspaceId] ?? '' : '';
-  notesStatus.textContent = activeWorkspaceId ? 'SAVED' : 'LOCKED';
+  notesStatus.textContent = activeWorkspaceId ? t('chrome.saved') : t('chrome.locked');
   notesLoadedWorkspaceId = activeWorkspaceId;
 }
 
 function scheduleNoteSave(): void {
   if (!activeWorkspaceId) {
-    notesStatus.textContent = 'LOCKED';
+    notesStatus.textContent = t('chrome.locked');
     return;
   }
-  notesStatus.textContent = 'SAVING';
+  notesStatus.textContent = t('chrome.saving');
   if (noteSaveTimer) window.clearTimeout(noteSaveTimer);
   noteSaveTimer = window.setTimeout(() => {
     const notes = notesStore();
     notes[activeWorkspaceId!] = notesInput.value;
     setStoredValue(storageKeys.notes, JSON.stringify(notes));
-    notesStatus.textContent = 'SAVED';
+    notesStatus.textContent = t('chrome.saved');
   }, 260);
 }
 
@@ -7573,7 +7692,9 @@ function renderInspectorPanels(): void {
   inspectorOverviewName.textContent = workspace?.name ?? t('chrome.noWorkspace');
   inspectorOverviewPath.textContent = workspace?.path ?? t('chrome.createOrOpen');
   inspectorOverviewSessions.textContent = String(liveSessions.length);
-  inspectorOverviewRuntime.textContent = workspace ? (getLiveSession(activeSessionId) ? 'LIVE' : 'READY') : 'LOCKED';
+  inspectorOverviewRuntime.textContent = workspace
+    ? (getLiveSession(activeSessionId) ? t('chrome.live').toUpperCase() : t('chrome.ready').toUpperCase())
+    : t('chrome.locked').toUpperCase();
   inspectorGitBranch.textContent = currentGitStatus?.branch || (workspace ? '' : '');
   if (!inspectorGitBranch.textContent) {
     inspectorGitBranch.textContent = !workspace
@@ -7600,9 +7721,9 @@ function renderInspectorPanels(): void {
     inspectorGitContent.innerHTML = '<div class="dock-empty">' + escapeHtml(gitPanelError || t('chrome.noGitRepo')) + '</div>';
   }
   inspectorSessionCount.textContent = String(liveSessions.length);
-  inspectorSessionsList.innerHTML = liveSessions.length
-    ? liveSessions.map((session) => '<button class="inspector-session-item" data-inspector-session="' + escapeHtml(session.id) + '" type="button"><span class="session-avatar">' + escapeHtml(session.name.charAt(0).toUpperCase()) + '</span><span><strong>' + escapeHtml(session.name) + '</strong><small>' + escapeHtml(sessionActivityLabel(sessionActivity(session))) + '</small></span><span class="inspector-session-status">' + (session.id === activeSessionId ? 'FOCUSED' : 'FOCUS') + '</span></button>').join('')
-    : '<div class="dock-empty">No hay sesiones abiertas.</div>';
+   inspectorSessionsList.innerHTML = liveSessions.length
+     ? liveSessions.map((session) => '<button class="inspector-session-item" data-inspector-session="' + escapeHtml(session.id) + '" type="button"><span class="session-avatar">' + escapeHtml(session.name.charAt(0).toUpperCase()) + '</span><span><strong>' + escapeHtml(session.name) + '</strong><small>' + escapeHtml(sessionActivityLabel(sessionActivity(session))) + '</small></span><span class="inspector-session-status">' + escapeHtml(session.id === activeSessionId ? t('chrome.inspectorFocused') : t('chrome.inspectorFocus')) + '</span></button>').join('')
+     : `<div class="dock-empty">${escapeHtml(t('chrome.noOpenSessions'))}</div>`;
 }
 
 function setInspectorTab(tab: string): void {
@@ -7830,7 +7951,7 @@ async function openWorkspaceFile(relative: string, options?: { fromAgent?: boole
     setEditorEnabled(true);
     editorFileName.textContent = tab.path.split('/').pop() ?? tab.path;
     editorFilePath.textContent = tab.path;
-    editorSaveStatus.textContent = tab.dirty ? 'DIRTY' : 'CLEAN';
+    editorSaveStatus.textContent = tab.dirty ? t('chrome.dirty') : t('chrome.clean');
     renderEditorTabs();
     updateStatusbar();
     developerDockCollapsed = false;
@@ -7865,7 +7986,7 @@ async function activateFileTab(path: string, rootHint?: string): Promise<void> {
     setEditorEnabled(true);
     editorFileName.textContent = current.path.split('/').pop() ?? current.path;
     editorFilePath.textContent = current.path;
-    editorSaveStatus.textContent = current.dirty ? 'DIRTY' : 'CLEAN';
+    editorSaveStatus.textContent = current.dirty ? t('chrome.dirty') : t('chrome.clean');
     renderEditorTabs();
     developerDockCollapsed = false;
     layoutState.developerDockCollapsed = false;
@@ -7913,10 +8034,10 @@ async function saveWorkspaceFile(): Promise<void> {
       tab.content = content;
       tab.dirty = false;
     }
-    editorSaveStatus.textContent = 'SAVED';
+    editorSaveStatus.textContent = t('chrome.saved');
     renderEditorTabs();
     saveWorkspaceLayout({ openFilePath: path, openFilePaths: openFileTabs.map((item) => item.path).slice(-24) });
-    window.setTimeout(() => { if (!openFileDirty) editorSaveStatus.textContent = 'CLEAN'; }, 1400);
+    window.setTimeout(() => { if (!openFileDirty) editorSaveStatus.textContent = t('chrome.clean'); }, 1400);
     void refreshGitPanel();
   } catch (error) {
     showToast(t('toast.saveFileFail', { error: String(error) }), true);
@@ -8239,11 +8360,11 @@ async function refreshWorktrees(): Promise<void> {
     currentGitWorktrees = worktrees;
     currentGitWorktreeRoot = workspace.path;
     currentGitWorktreeState = 'ready';
-    gitWorktreeList.innerHTML = '<div class="git-subheading">WORKTREES</div>' + worktrees.map((worktree) => {
+    gitWorktreeList.innerHTML = `<div class="git-subheading">${escapeHtml(t('chrome.worktrees'))}</div>` + worktrees.map((worktree) => {
       const main = sameFsPath(worktree.path, workspace.path);
       const owner = sessions.find((session) => session.worktree ? sameFsPath(session.worktree, worktree.path) : false);
-      const label = worktree.branch || (worktree.detached ? 'detached' : worktree.head.slice(0, 8));
-      return '<div class="git-worktree-row"><span class="git-worktree-dot"></span><span class="git-worktree-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(worktree.path) + (owner ? ' · ' + escapeHtml(owner.name) : '') + '</small></span>' + (main ? '<em>MAIN</em>' : '<button class="git-action git-action-danger" data-remove-worktree="' + escapeHtml(worktree.path) + '" type="button">' + escapeHtml(t('chrome.remove')) + '</button>') + '</div>';
+      const label = worktree.branch || (worktree.detached ? t('chrome.detached') : worktree.head.slice(0, 8));
+      return '<div class="git-worktree-row"><span class="git-worktree-dot"></span><span class="git-worktree-copy"><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(worktree.path) + (owner ? ' · ' + escapeHtml(owner.name) : '') + '</small></span>' + (main ? '<em>' + escapeHtml(t('chrome.main')) + '</em>' : '<button class="git-action git-action-danger" data-remove-worktree="' + escapeHtml(worktree.path) + '" type="button">' + escapeHtml(t('chrome.remove')) + '</button>') + '</div>';
     }).join('');
     const rows: HTMLElement[] = Array.from(gitWorktreeList.querySelectorAll('.git-worktree-row')) as HTMLElement[];
     worktrees.forEach((worktree, index) => {
@@ -8418,7 +8539,7 @@ function renderSessions(): void {
       </div>
       <span class="sidebar-session-state" data-state="${activity}">${escapeHtml(sessionActivityLabel(activity))}</span>
     </div>`;
-  }).join('') : '<div class="dock-empty sidebar-no-sessions">Sin sesiones abiertas.</div>';
+  }).join('') : `<div class="dock-empty sidebar-no-sessions">${escapeHtml(t('chrome.noOpenSessions'))}</div>`;
   const active = getLiveSession(activeSessionId);
   const activeTabTitle = document.querySelector<HTMLElement>('#active-tab-title');
   if (activeTabTitle) {
@@ -8493,8 +8614,8 @@ function updateStatusbar(): void {
       gitPill.hidden = false;
       gitPill.textContent = dirty ? `${currentGitStatus.branch}*` : currentGitStatus.branch;
       gitPill.title = dirty
-        ? `${currentGitStatus.entries.length} cambios en ${currentGitStatus.branch}`
-        : `Rama ${currentGitStatus.branch}`;
+        ? t('chrome.gitChangesOnBranch', { count: currentGitStatus.entries.length, branch: currentGitStatus.branch })
+        : t('chrome.gitBranchLabel', { branch: currentGitStatus.branch });
     } else {
       gitPill.hidden = true;
       gitPill.textContent = '';
@@ -8662,14 +8783,14 @@ function mountTerminal(session: SessionInfo): void {
     const stop = document.createElement('button');
     stop.className = 'icon-button terminal-control terminal-control-stop';
     stop.dataset.interruptSession = session.id;
-    stop.title = 'Enviar Ctrl+C';
-    stop.setAttribute('aria-label', 'Interrumpir proceso');
+    stop.title = t('chrome.stopProcess');
+    stop.setAttribute('aria-label', t('chrome.stopProcess'));
     stop.innerHTML = icons.stop;
     const restart = document.createElement('button');
     restart.className = 'icon-button terminal-control';
     restart.dataset.restartSession = session.id;
-    restart.title = 'Reiniciar proceso';
-    restart.setAttribute('aria-label', 'Reiniciar proceso');
+    restart.title = t('chrome.restartProcess');
+    restart.setAttribute('aria-label', t('chrome.restartProcess'));
     restart.innerHTML = icons.refresh;
     actionHost.insertBefore(restart, actionHost.firstElementChild);
     actionHost.insertBefore(stop, actionHost.firstElementChild);
@@ -8887,7 +9008,7 @@ function handleOutput(payload: TerminalOutput): void {
 
 function renderDetectedEndpoints(): void {
   endpointStrip.hidden = detectedEndpoints.size === 0;
-  endpointStrip.innerHTML = [...detectedEndpoints].map((url) => `<span class="detected-endpoint"><span>${icons.browser}<strong>${escapeHtml(url)}</strong></span><button class="text-action" data-open-endpoint="${escapeHtml(url)}" type="button">Open preview</button></span>`).join('');
+  endpointStrip.innerHTML = [...detectedEndpoints].map((url) => `<span class="detected-endpoint"><span>${icons.browser}<strong>${escapeHtml(url)}</strong></span><button class="text-action" data-open-endpoint="${escapeHtml(url)}" type="button">${escapeHtml(t('chrome.openPreview'))}</button></span>`).join('');
 }
 
 function detectLocalhostEndpoints(data: string): void {
@@ -8980,14 +9101,14 @@ async function openSessionDetails(session: SessionInfo): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) return;
   const root = session.worktree ?? session.cwd;
-  let branch = 'No disponible';
+  let branch = t('runtime.notAvailable');
   let stats: GitDiffStats | null = null;
   let statsError = '';
   try {
     const repository = await invoke<{ branch: string; isRepository: boolean }>('repository_info', { path: root });
-    branch = repository.isRepository ? (repository.branch || 'DETACHED') : t('chrome.notGitRepoBranch');
+    branch = repository.isRepository ? (repository.branch || t('chrome.detached').toUpperCase()) : t('chrome.notGitRepoBranch');
   } catch (error) {
-    branch = 'No disponible: ' + String(error);
+    branch = t('runtime.notAvailableWithError', { error: String(error) });
   }
   try {
     stats = await invoke<GitDiffStats>('diff_stats', { path: root });
@@ -8995,15 +9116,15 @@ async function openSessionDetails(session: SessionInfo): Promise<void> {
     statsError = String(error);
   }
   const statsValue = stats
-    ? String(stats.filesChanged) + ' files · <b class="stat-add">+' + String(stats.additions) + '</b> <b class="stat-delete">-' + String(stats.deletions) + '</b>'
-    : 'No disponible';
+    ? escapeHtml(t('runtime.filesCount', { count: stats.filesChanged })) + ' · <b class="stat-add">+' + String(stats.additions) + '</b> <b class="stat-delete">-' + String(stats.deletions) + '</b>'
+    : t('runtime.notAvailable');
   const rows = [
-    ['AGENT / SHELL', escapeHtml(session.agentType ?? session.shell), escapeHtml(session.shell + ' · ' + session.executable)],
-    ['STATUS / PID', escapeHtml(session.status.toUpperCase() + ' · ' + (session.pid === null ? 'N/A' : String(session.pid))), String(session.cols) + ' x ' + String(session.rows) + ' PTY'],
-    ['DIRECTORY', escapeHtml(session.cwd), 'Working directory actual'],
-    ['WORKTREE / BRANCH', escapeHtml(session.worktree ?? 'Main repository'), escapeHtml(branch)],
-    ['STARTED', escapeHtml(sessionStartedLabel(session.createdAt)), 'Registro del proceso'],
-    ['FILES CHANGED', statsValue, escapeHtml(statsError || 'Calculado con Git real')],
+    [t('runtime.agentShell'), escapeHtml(session.agentType ?? session.shell), escapeHtml(session.shell + ' · ' + session.executable)],
+    [t('runtime.statusPid'), escapeHtml(session.status.toUpperCase() + ' · ' + (session.pid === null ? 'N/A' : String(session.pid))), String(session.cols) + ' x ' + String(session.rows) + ' PTY'],
+    [t('runtime.directory'), escapeHtml(session.cwd), t('runtime.workingDirectory')],
+    [t('runtime.worktreeBranch'), escapeHtml(session.worktree ?? t('runtime.mainRepository')), escapeHtml(branch)],
+    [t('runtime.started'), escapeHtml(sessionStartedLabel(session.createdAt)), t('runtime.processRecord')],
+    [t('runtime.filesChanged'), statsValue, escapeHtml(statsError || t('runtime.gitCalculated'))],
   ];
   modalRoot.innerHTML = '<div class="modal-backdrop" id="session-details-backdrop"><section class="modal-panel session-details-modal"><div class="modal-heading"><div><span class="eyebrow">' + tx('modal.runtimeSession') + '</span><h2>' + escapeHtml(session.name) + '</h2></div><button class="modal-close" id="session-details-close" type="button">' + icons.close + '</button></div><p class="modal-copy">' + tx('modal.sessionMetaCopy') + '</p><div class="session-details-grid">' + rows.map((row) => '<div class="session-detail"><span>' + row[0] + '</span><strong>' + row[1] + '</strong><small>' + row[2] + '</small></div>').join('') + '</div><div class="modal-actions"><button class="secondary-button" id="session-details-explorer" type="button">' + icons.external + '<span>' + tx('modal.openInExplorer') + '</span></button><button class="primary-button" id="session-details-done" type="button">' + tx('modal.done') + '</button></div></section></div>';
   const close = (): void => { modalRoot.innerHTML = ''; };
@@ -9025,7 +9146,7 @@ function openSessionContextMenu(event: MouseEvent, sessionId: string): void {
   menu.className = 'file-context-menu session-context-menu';
   menu.style.left = String(Math.min(event.clientX, window.innerWidth - 230)) + 'px';
   menu.style.top = String(Math.min(event.clientY, window.innerHeight - 310)) + 'px';
-  menu.innerHTML = '<button data-session-action="details" type="button">Session details</button><button data-session-action="focus" type="button">Focus</button><button data-session-action="restart" type="button">Restart</button><button data-session-action="stop" type="button">Stop / Ctrl+C</button><button data-session-action="kill" type="button">Kill process</button><button data-session-action="worktree" type="button">Open worktree</button><button data-session-action="explorer" type="button">Open in Explorer</button><button data-session-action="git" type="button">Git status</button><button data-session-action="diff" type="button">View diff</button><button data-session-action="remove" type="button">Remove session</button>';
+  menu.innerHTML = `<button data-session-action="details" type="button">${tx('session.contextDetails')}</button><button data-session-action="focus" type="button">${tx('session.contextFocus')}</button><button data-session-action="restart" type="button">${tx('session.contextRestart')}</button><button data-session-action="stop" type="button">${tx('session.contextStop')}</button><button data-session-action="kill" type="button">${tx('session.contextKill')}</button><button data-session-action="worktree" type="button">${tx('session.contextWorktree')}</button><button data-session-action="explorer" type="button">${tx('session.contextExplorer')}</button><button data-session-action="git" type="button">${tx('session.contextGit')}</button><button data-session-action="diff" type="button">${tx('session.contextDiff')}</button><button data-session-action="remove" type="button">${tx('session.contextRemove')}</button>`;
   document.body.appendChild(menu);
   const close = (): void => { menu.remove(); document.removeEventListener('pointerdown', outside); };
   const outside = (pointerEvent: PointerEvent): void => { if (!menu.contains(pointerEvent.target as Node)) close(); };
@@ -9346,14 +9467,14 @@ function createNativeBrowserWebview(panel: BrowserPanel | LocalhostPanel): void 
     const webview = new Webview(currentAppWebview.window, panel.id, { url: panel.url, x: 0, y: 0, width: 8, height: 8, focus: false, dragDropEnabled: false, zoomHotkeysEnabled: true });
     panel.webview = webview;
     void webview.once('tauri://created', () => {
-      if (status) status.textContent = 'LOADED';
+       if (status) status.textContent = t('chrome.browserLoaded');
       scheduleWebviewSync();
       if (designModeEnabled) void injectDesignPicker();
     });
-    void webview.once('tauri://error', () => { if (status) status.textContent = 'ERROR'; showToast(t('toast.browserLoadFail'), true); });
+     void webview.once('tauri://error', () => { if (status) status.textContent = t('chrome.browserError'); showToast(t('toast.browserLoadFail'), true); });
     scheduleWebviewSync();
   } catch (error) {
-    if (status) status.textContent = 'EXTERNAL';
+    if (status) status.textContent = t('chrome.browserExternal');
     showToast(t('toast.browserCreateFail', { error: String(error) }), true);
   }
 }
@@ -9377,7 +9498,7 @@ function createLocalhostPanel(rawUrl: string, requestedName?: string): void {
   const element = document.createElement('article');
   element.className = 'tool-view';
   element.dataset.toolId = id;
-  element.innerHTML = `<header class="tool-view-header"><div class="tool-view-title">${icons.browser}<span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(url)}</small></span></div><div class="tool-view-actions"><span data-tool-status>LOADING</span><button class="icon-button" data-tool-refresh="${id}" title="Actualizar">${icons.refresh}</button><button class="icon-button" data-close-tool="${id}" title="Cerrar">${icons.close}</button></div></header><div class="tool-frame browser-frame" title="${escapeHtml(label)}"></div>`;
+   element.innerHTML = `<header class="tool-view-header"><div class="tool-view-title">${icons.browser}<span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(url)}</small></span></div><div class="tool-view-actions"><span data-tool-status>${escapeHtml(t('chrome.browserLoading'))}</span><button class="icon-button" data-tool-refresh="${id}" title="${escapeHtml(t('chrome.refresh'))}">${icons.refresh}</button><button class="icon-button" data-close-tool="${id}" title="${escapeHtml(t('common.close'))}">${icons.close}</button></div></header><div class="tool-frame browser-frame" title="${escapeHtml(label)}"></div>`;
   const frame = element.querySelector<HTMLDivElement>('.browser-frame')!;
   toolStage.appendChild(element);
   const panel: LocalhostPanel = { id, url, element, frame, webview: null };
@@ -9411,7 +9532,7 @@ function createBrowserPanel(rawUrl: string, requestedName?: string): void {
   const element = document.createElement('article');
   element.className = 'tool-view';
   element.dataset.toolId = id;
-  element.innerHTML = `<header class="tool-view-header"><div class="tool-view-title">${icons.browser}<span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(url)}</small></span></div><div class="tool-view-actions"><span data-tool-status>LOADING</span><button class="icon-button" data-tool-external="${id}" title="Abrir externo">${icons.external}</button><button class="icon-button" data-tool-refresh="${id}" title="Actualizar">${icons.refresh}</button><button class="icon-button" data-close-tool="${id}" title="Cerrar">${icons.close}</button></div></header><div class="browser-address"><form data-tool-search="${id}"><input value="${escapeHtml(url)}" data-tool-url="${id}" autocomplete="url"/><button type="submit">${icons.chevron}</button></form></div><div class="tool-frame browser-frame" title="${escapeHtml(title)}"></div>`;
+   element.innerHTML = `<header class="tool-view-header"><div class="tool-view-title">${icons.browser}<span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(url)}</small></span></div><div class="tool-view-actions"><span data-tool-status>${escapeHtml(t('chrome.browserLoading'))}</span><button class="icon-button" data-tool-external="${id}" title="${escapeHtml(t('chrome.openExternal'))}">${icons.external}</button><button class="icon-button" data-tool-refresh="${id}" title="${escapeHtml(t('chrome.refresh'))}">${icons.refresh}</button><button class="icon-button" data-close-tool="${id}" title="${escapeHtml(t('common.close'))}">${icons.close}</button></div></header><div class="browser-address"><form data-tool-search="${id}"><input value="${escapeHtml(url)}" data-tool-url="${id}" autocomplete="url"/><button type="submit">${icons.chevron}</button></form></div><div class="tool-frame browser-frame" title="${escapeHtml(title)}"></div>`;
   const frame = element.querySelector<HTMLDivElement>('.browser-frame')!;
   toolStage.appendChild(element);
   const panel: BrowserPanel = { id, url, title, element, frame, webview: null };
@@ -9446,7 +9567,7 @@ async function navigateBrowserPanel(id: string, rawUrl: string): Promise<void> {
   const status = panel.element.querySelector<HTMLElement>('[data-tool-status]');
   if (title) title.textContent = panel.title;
   if (address) address.value = url;
-  if (status) status.textContent = 'LOADING';
+   if (status) status.textContent = t('chrome.browserLoading');
   if (old) await old.close().catch(() => undefined);
   if (browserNavigationTokens.get(id) !== token || browserPanels.get(id) !== panel) return;
   createNativeBrowserWebview(panel);
@@ -9723,7 +9844,7 @@ function openWorkspaceModal(returnToMenu = true, enterAfter = false): void {
     void ensureSignedInForDesktop();
     return;
   }
-  modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-modal-backdrop"><form class="modal-panel" id="workspace-form"><div class="modal-heading"><div><span class="eyebrow">GITHUB / REPOSITORIO</span><h2>${escapeHtml(t('menu.create'))}</h2></div><button class="modal-close" id="workspace-modal-close" type="button">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.createGithubCopy'))}</p><label class="field-label" for="workspace-name-input">${escapeHtml(t('menu.createName'))}</label><input class="field-input" id="workspace-name-input" placeholder="mi-proyecto" required/><label class="field-label" for="workspace-path-input">${escapeHtml(t('menu.createLocalFolder'))}</label><input class="field-input" id="workspace-path-input" placeholder="${escapeHtml(t('menu.createLocalPlaceholder'))}"/><div class="modal-actions"><button class="secondary-button" id="workspace-modal-cancel" type="button">${escapeHtml(t('common.cancel'))}</button><button class="primary-button" type="submit">${icons.github}<span>${escapeHtml(t('menu.create'))}</span></button></div></form></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-modal-backdrop"><form class="modal-panel" id="workspace-form"><div class="modal-heading"><div><span class="eyebrow">${escapeHtml(t('menu.createEyebrow'))}</span><h2>${escapeHtml(t('menu.createWorkspaceTitle'))}</h2></div><button class="modal-close" id="workspace-modal-close" type="button" aria-label="${escapeHtml(t('common.close'))}">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.createGithubCopy'))}</p><label class="field-label" for="workspace-name-input">${escapeHtml(t('menu.createWorkspaceName'))}</label><input class="field-input" id="workspace-name-input" placeholder="${escapeHtml(t('menu.createNamePh'))}" required/><label class="field-label" for="workspace-path-input">${escapeHtml(t('menu.createLocalFolder'))}</label><input class="field-input" id="workspace-path-input" placeholder="${escapeHtml(t('menu.createLocalPlaceholder'))}"/><div class="modal-actions"><button class="secondary-button" id="workspace-modal-cancel" type="button">${escapeHtml(t('common.cancel'))}</button><button class="primary-button" type="submit">${icons.github}<span>${escapeHtml(t('menu.create'))}</span></button></div></form></div>`;
   const close = (): void => { modalRoot.innerHTML = ''; if (returnToMenu) openMainMenu(); };
   document.querySelector<HTMLButtonElement>('#workspace-modal-close')!.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#workspace-modal-cancel')!.addEventListener('click', close);
@@ -9929,12 +10050,12 @@ async function openSettingsModal(): Promise<void> {
           <h3 data-i18n="settings.voice">${escapeHtml(t('settings.voice'))}</h3>
           <p class="settings-pane-copy" data-i18n="settings.voiceCopy">${escapeHtml(t('settings.voiceCopy'))}</p>
           <div class="setting-field settings-field-wide">
-            <span>${escapeHtml(t('settings.microphone'))}</span>
+            <span data-i18n="settings.microphone">${escapeHtml(t('settings.microphone'))}</span>
             <div class="settings-mic-row">
               <select class="field-input" id="settings-microphone" aria-label="${escapeHtml(t('settings.microphone'))}"></select>
-              <button class="secondary-button" id="settings-microphone-refresh" type="button">${escapeHtml(t('settings.microphoneRefresh'))}</button>
+              <button class="secondary-button" id="settings-microphone-refresh" type="button" data-i18n="settings.microphoneRefresh">${escapeHtml(t('settings.microphoneRefresh'))}</button>
             </div>
-            <small>${escapeHtml(t('settings.microphoneHint'))}</small>
+            <small data-i18n="settings.microphoneHint">${escapeHtml(t('settings.microphoneHint'))}</small>
           </div>
         </section>
         <section class="settings-pane" data-pane="accounts" hidden>
@@ -9950,25 +10071,25 @@ async function openSettingsModal(): Promise<void> {
           <h3 data-i18n="settings.runtime">${escapeHtml(t('settings.runtime'))}</h3>
           <p class="settings-pane-copy" data-i18n="settings.runtimeCopy">${escapeHtml(t('settings.runtimeCopy'))}</p>
           <div class="settings-grid">
-            <label class="setting-field"><span>${escapeHtml(t('settings.shell'))}</span><select class="field-input" id="settings-shell">${settingsShellChoices}</select><small>${escapeHtml(t('settings.shellHint'))}</small></label>
-            <label class="setting-field"><span>${escapeHtml(t('settings.agent'))}</span><select class="field-input" id="settings-agent"><option value=""${!appSettings.defaultAgent ? ' selected' : ''}>${escapeHtml(t('settings.agentManual'))}</option>${settingsAgentChoices}</select><small>${escapeHtml(t('settings.agentHint'))}</small></label>
+            <label class="setting-field"><span data-i18n="settings.shell">${escapeHtml(t('settings.shell'))}</span><select class="field-input" id="settings-shell">${settingsShellChoices}</select><small data-i18n="settings.shellHint">${escapeHtml(t('settings.shellHint'))}</small></label>
+            <label class="setting-field"><span data-i18n="settings.agent">${escapeHtml(t('settings.agent'))}</span><select class="field-input" id="settings-agent"><option value=""${!appSettings.defaultAgent ? ' selected' : ''} data-i18n="settings.agentManual">${escapeHtml(t('settings.agentManual'))}</option>${settingsAgentChoices}</select><small data-i18n="settings.agentHint">${escapeHtml(t('settings.agentHint'))}</small></label>
           </div>
         </section>
         <section class="settings-pane" data-pane="terminal" hidden>
           <h3 data-i18n="settings.nav.terminal">${escapeHtml(t('settings.nav.terminal'))}</h3>
           <p class="settings-pane-copy" data-i18n="settings.terminalCopy">${escapeHtml(t('settings.terminalCopy'))}</p>
           <div class="settings-grid">
-            <label class="setting-field"><span>${escapeHtml(t('settings.font'))}</span><input class="field-input" id="settings-font" value="${escapeHtml(appSettings.terminalFont)}"/><small>${escapeHtml(t('settings.fontHint'))}</small></label>
-            <label class="setting-field"><span>${escapeHtml(t('settings.size'))}</span><input class="field-input" id="settings-font-size" type="number" min="10" max="28" value="${String(appSettings.terminalFontSize)}"/><small>${escapeHtml(t('settings.sizeHint'))}</small></label>
-            <label class="setting-field"><span>${escapeHtml(t('settings.cursor'))}</span><select class="field-input" id="settings-cursor"><option value="bar"${appSettings.terminalCursor === 'bar' ? ' selected' : ''}>${escapeHtml(t('settings.cursorBar'))}</option><option value="block"${appSettings.terminalCursor === 'block' ? ' selected' : ''}>${escapeHtml(t('settings.cursorBlock'))}</option><option value="underline"${appSettings.terminalCursor === 'underline' ? ' selected' : ''}>${escapeHtml(t('settings.cursorUnderline'))}</option></select><small>${escapeHtml(t('settings.cursorHint'))}</small></label>
-            <label class="setting-field"><span>${escapeHtml(t('settings.scrollback'))}</span><input class="field-input" id="settings-scrollback" type="number" min="1000" max="100000" step="1000" value="${String(appSettings.terminalScrollback)}"/><small>${escapeHtml(t('settings.scrollbackHint'))}</small></label>
+            <label class="setting-field"><span data-i18n="settings.font">${escapeHtml(t('settings.font'))}</span><input class="field-input" id="settings-font" value="${escapeHtml(appSettings.terminalFont)}"/><small data-i18n="settings.fontHint">${escapeHtml(t('settings.fontHint'))}</small></label>
+            <label class="setting-field"><span data-i18n="settings.size">${escapeHtml(t('settings.size'))}</span><input class="field-input" id="settings-font-size" type="number" min="10" max="28" value="${String(appSettings.terminalFontSize)}"/><small data-i18n="settings.sizeHint">${escapeHtml(t('settings.sizeHint'))}</small></label>
+            <label class="setting-field"><span data-i18n="settings.cursor">${escapeHtml(t('settings.cursor'))}</span><select class="field-input" id="settings-cursor"><option value="bar"${appSettings.terminalCursor === 'bar' ? ' selected' : ''} data-i18n="settings.cursorBar">${escapeHtml(t('settings.cursorBar'))}</option><option value="block"${appSettings.terminalCursor === 'block' ? ' selected' : ''} data-i18n="settings.cursorBlock">${escapeHtml(t('settings.cursorBlock'))}</option><option value="underline"${appSettings.terminalCursor === 'underline' ? ' selected' : ''} data-i18n="settings.cursorUnderline">${escapeHtml(t('settings.cursorUnderline'))}</option></select><small data-i18n="settings.cursorHint">${escapeHtml(t('settings.cursorHint'))}</small></label>
+            <label class="setting-field"><span data-i18n="settings.scrollback">${escapeHtml(t('settings.scrollback'))}</span><input class="field-input" id="settings-scrollback" type="number" min="1000" max="100000" step="1000" value="${String(appSettings.terminalScrollback)}"/><small data-i18n="settings.scrollbackHint">${escapeHtml(t('settings.scrollbackHint'))}</small></label>
           </div>
         </section>
         <section class="settings-pane" data-pane="workspace" hidden>
           <h3 data-i18n="settings.nav.workspace">${escapeHtml(t('settings.nav.workspace'))}</h3>
           <p class="settings-pane-copy" data-i18n="settings.workspaceCopy">${escapeHtml(t('settings.workspaceCopy'))}</p>
-          <label class="setting-field settings-field-wide"><span>${escapeHtml(t('settings.worktree'))}</span><input class="field-input" id="settings-worktree" placeholder="${escapeHtml(t('settings.worktreePlaceholder'))}" value="${escapeHtml(appSettings.worktreeDirectory)}"/><small>${escapeHtml(t('settings.worktreeHint'))}</small></label>
-          <label class="setting-field settings-field-wide"><span>${escapeHtml(t('settings.env'))}</span><small>${escapeHtml(t('settings.envHint'))}</small><textarea class="field-input settings-environment" id="settings-environment" spellcheck="false">${settingsEnvironmentText}</textarea></label>
+          <label class="setting-field settings-field-wide"><span data-i18n="settings.worktree">${escapeHtml(t('settings.worktree'))}</span><input class="field-input" id="settings-worktree" placeholder="${escapeHtml(t('settings.worktreePlaceholder'))}" value="${escapeHtml(appSettings.worktreeDirectory)}"/><small data-i18n="settings.worktreeHint">${escapeHtml(t('settings.worktreeHint'))}</small></label>
+          <label class="setting-field settings-field-wide"><span data-i18n="settings.env">${escapeHtml(t('settings.env'))}</span><small data-i18n="settings.envHint">${escapeHtml(t('settings.envHint'))}</small><textarea class="field-input settings-environment" id="settings-environment" spellcheck="false">${settingsEnvironmentText}</textarea></label>
         </section>
         <section class="settings-pane" data-pane="about" hidden>
           <h3 data-i18n="settings.nav.about">${escapeHtml(t('settings.nav.about'))}</h3>
@@ -9977,13 +10098,13 @@ async function openSettingsModal(): Promise<void> {
             <span class="eyebrow">${escapeHtml(t('settings.install'))}</span>
             <strong>${versionLabel}</strong>
             <small>${escapeHtml(t('settings.platform', { platform: runtimePlatform.os || 'local', shell: runtimePlatform.defaultShellName || runtimePlatform.defaultShell }))}</small>
-            <p>${updateStatus}</p>
+            <p id="settings-update-status">${updateStatus}</p>
           </div>
           <div class="settings-info">
             <span class="panel-icon panel-icon-gray">${icons.bolt}</span>
             <span><strong>${escapeHtml(t('settings.localFirst'))}</strong><small>${escapeHtml(t('settings.localFirstHint'))}</small></span>
           </div>
-          <button class="secondary-button" id="settings-check-update" type="button">${escapeHtml(t('settings.checkUpdate'))}</button>
+          <button class="secondary-button" id="settings-check-update" type="button" data-i18n="settings.checkUpdate">${escapeHtml(t('settings.checkUpdate'))}</button>
         </section>
       </div>
     </div>
@@ -10498,24 +10619,24 @@ function openCommandPalette(): void {
   const paletteList = document.querySelector<HTMLElement>('.palette-list');
   if (paletteList) {
     const commands = [
-      ['new-agent', 'New Agent CLI', 'Launch an installed CLI in a real PTY'],
-      ['composer', 'Open Chat', 'Focus the agent chat with editor context'],
-      ['inline-edit', 'Inline Edit', 'Edit the current selection with the agent'],
-      ['new-terminal', 'New Terminal', 'Open a shell selected from the real OS'],
-      ['open-file', 'Open File', 'Search and open a real workspace file'],
-      ['switch-workspace', 'Switch Workspace', 'Open a saved local workspace'],
-      ['search', 'Search Files', 'Search the real workspace filesystem'],
-      ['git-status', 'Git Status', 'Show actual repository changes'],
-      ['git-commit', 'Git Commit', 'Focus the real Git commit form'],
-      ['clone', 'Clone Repository', 'Run git clone with real arguments'],
-      ['browser', 'Open Browser', 'Open an actual integrated webview'],
-      ['localhost', 'Open Localhost', 'Open a real local server preview'],
-      ['sidebar', 'Toggle Sidebar', 'Show or hide the workspace sidebar'],
-      ['toggle-editor', 'Show Editor', 'Open the real Monaco workspace editor'],
-      ['toggle-browser', 'Show Browser', 'Open the integrated browser tools'],
-      ['focus-next', 'Focus Next Agent', 'Move focus to the next live terminal'],
-      ['restart-agent', 'Restart Agent', 'Restart the focused real process'],
-      ['kill-agent', 'Kill Agent', 'Terminate the focused real process'],
+      ['new-agent', t('palette.cmdNewAgent'), t('palette.cmdNewAgentHint')],
+      ['composer', t('palette.cmdOpenChat'), t('palette.cmdOpenChatHint')],
+      ['inline-edit', t('palette.cmdInlineEdit'), t('palette.cmdInlineEditHint')],
+      ['new-terminal', t('palette.cmdNewTerminal'), t('palette.cmdNewTerminalHint')],
+      ['open-file', t('palette.cmdOpenFile'), t('palette.cmdOpenFileHint')],
+      ['switch-workspace', t('palette.cmdSwitchWorkspace'), t('palette.cmdSwitchWorkspaceHint')],
+      ['search', t('palette.cmdSearchFiles'), t('palette.cmdSearchFilesHint')],
+      ['git-status', t('palette.cmdGitStatus'), t('palette.cmdGitStatusHint')],
+      ['git-commit', t('palette.cmdGitCommit'), t('palette.cmdGitCommitHint')],
+      ['clone', t('palette.cmdClone'), t('palette.cmdCloneHint')],
+      ['browser', t('palette.cmdOpenBrowser'), t('palette.cmdOpenBrowserHint')],
+      ['localhost', t('palette.cmdOpenLocalhost'), t('palette.cmdOpenLocalhostHint')],
+      ['sidebar', t('palette.cmdToggleSidebar'), t('palette.cmdToggleSidebarHint')],
+      ['toggle-editor', t('palette.cmdShowEditor'), t('palette.cmdShowEditorHint')],
+      ['toggle-browser', t('palette.cmdShowBrowser'), t('palette.cmdShowBrowserHint')],
+      ['focus-next', t('palette.cmdFocusNext'), t('palette.cmdFocusNextHint')],
+      ['restart-agent', t('palette.cmdRestartAgent'), t('palette.cmdRestartAgentHint')],
+      ['kill-agent', t('palette.cmdKillAgent'), t('palette.cmdKillAgentHint')],
     ];
     paletteList.insertAdjacentHTML('afterbegin', commands.map(([id, name, description]) => '<button type="button" data-palette-command="' + id + '">' + icons.bolt + '<span><strong>' + name + '</strong><small>' + description + '</small></span>' + icons.chevron + '</button>').join(''));
   }
@@ -10596,7 +10717,7 @@ async function openSearchModal(): Promise<void> {
     showToast(t('toast.needWorkspaceSearch'), true);
     return;
   }
-  modalRoot.innerHTML = '<div class="modal-backdrop" id="search-backdrop"><section class="modal-panel search-modal" role="dialog" aria-modal="true" aria-labelledby="search-title" aria-describedby="search-description"><div class="modal-heading"><div><span class="eyebrow">PROJECT / SEARCH</span><h2 id="search-title">Search files</h2></div><button class="modal-close" id="search-close" type="button" aria-label="Close search" title="Close search">' + icons.close + '</button></div><p class="modal-copy" id="search-description">Busca en los archivos reales del workspace. Se excluyen .git, node_modules, target y dist.</p><form id="search-form"><div class="search-options" aria-label="Search options"><label><input id="search-regex" type="checkbox"/><span>Regex</span></label><label><input id="search-case" type="checkbox"/><span>Case sensitive</span></label><label><input id="search-whole" type="checkbox"/><span>Whole word</span></label><label class="search-filter"><span>Files</span><input id="search-file-filter" placeholder="*.ts, *.tsx" aria-label="File filter"/></label></div><div class="search-query"><label class="search-query-label" for="search-query"><span>Search content</span><kbd>Enter</kbd></label><input class="field-input" id="search-query" placeholder="texto a buscar" autocomplete="off" aria-describedby="search-description" required/></div><button class="primary-button" type="submit">' + icons.search + '<span>Search</span><kbd>Enter</kbd></button></form><div class="search-results" id="search-results" aria-live="polite"><div class="dock-empty">Escribe una consulta.</div></div></section></div>';
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="search-backdrop"><section class="modal-panel search-modal" role="dialog" aria-modal="true" aria-labelledby="search-title" aria-describedby="search-description"><div class="modal-heading"><div><span class="eyebrow">${tx('search.eyebrow')}</span><h2 id="search-title">${tx('search.title')}</h2></div><button class="modal-close" id="search-close" type="button" aria-label="${tx('search.close')}" title="${tx('search.close')}">${icons.close}</button></div><p class="modal-copy" id="search-description">${tx('search.copy')}</p><form id="search-form"><div class="search-options" aria-label="${tx('search.options')}"><label><input id="search-regex" type="checkbox"/><span>${tx('search.regex')}</span></label><label><input id="search-case" type="checkbox"/><span>${tx('search.case')}</span></label><label><input id="search-whole" type="checkbox"/><span>${tx('search.whole')}</span></label><label class="search-filter"><span>${tx('search.files')}</span><input id="search-file-filter" placeholder="*.ts, *.tsx" aria-label="${tx('search.files')}"/></label></div><div class="search-query"><label class="search-query-label" for="search-query"><span>${tx('search.content')}</span><kbd>Enter</kbd></label><input class="field-input" id="search-query" placeholder="${tx('search.placeholder')}" autocomplete="off" aria-describedby="search-description" required/></div><button class="primary-button" type="submit">${icons.search}<span>${tx('search.submit')}</span><kbd>Enter</kbd></button></form><div class="search-results" id="search-results" aria-live="polite"><div class="dock-empty">${tx('search.empty')}</div></div></section></div>`;
   const close = (): void => { modalRoot.innerHTML = ''; };
   document.querySelector<HTMLButtonElement>('#search-close')!.addEventListener('click', close);
   document.querySelector<HTMLFormElement>('#search-form')!.addEventListener('submit', async (event) => {
@@ -10608,10 +10729,10 @@ async function openSearchModal(): Promise<void> {
     const caseSensitive = document.querySelector<HTMLInputElement>('#search-case')?.checked ?? false;
     const wholeWord = document.querySelector<HTMLInputElement>('#search-whole')?.checked ?? false;
     const fileFilter = document.querySelector<HTMLInputElement>('#search-file-filter')?.value.trim() || null;
-    results.innerHTML = '<div class="dock-empty">Buscando en el filesystem...</div>';
+    results.innerHTML = `<div class="dock-empty">${tx('search.searching')}</div>`;
     try {
       const matches = await invoke<SearchMatch[]>('search', { root: activeProjectRoot() ?? workspace.path, query, useRegex, caseSensitive, wholeWord, fileFilter });
-      results.innerHTML = matches.length ? matches.map((match) => '<button class="search-result" data-search-path="' + escapeHtml(match.path) + '" data-search-line="' + match.line + '" type="button"><strong>' + escapeHtml(match.path) + ':' + match.line + '</strong><code>' + escapeHtml(match.text) + '</code></button>').join('') : '<div class="dock-empty">No se encontraron coincidencias reales.</div>';
+      results.innerHTML = matches.length ? matches.map((match) => '<button class="search-result" data-search-path="' + escapeHtml(match.path) + '" data-search-line="' + match.line + '" type="button"><strong>' + escapeHtml(match.path) + ':' + match.line + '</strong><code>' + escapeHtml(match.text) + '</code></button>').join('') : `<div class="dock-empty">${tx('search.noMatches')}</div>`;
       results.querySelectorAll<HTMLButtonElement>('[data-search-path]').forEach((button) => button.addEventListener('click', () => {
         const path = button.dataset.searchPath;
         const line = Number(button.dataset.searchLine ?? '1');
@@ -11106,7 +11227,7 @@ function bindInteractions(): void {
       tab.dirty = true;
     }
     renderEditorTabs();
-    editorSaveStatus.textContent = 'DIRTY';
+    editorSaveStatus.textContent = t('chrome.dirty');
   });
   editorSave.addEventListener('click', () => { void saveWorkspaceFile(); });
   gitRefresh.addEventListener('click', () => { void refreshGitPanel(); });
@@ -11642,6 +11763,9 @@ async function finishStartup(): Promise<void> {
 async function initialize(): Promise<void> {
   document.body.classList.add('boot-pending');
   bindInteractions();
+  window.addEventListener('languagechange', () => {
+    if (appSettings.uiLanguage === 'auto') void refreshAppLanguage({ waitForIp: true });
+  });
   loadSelectedAgentModels();
   renderGithubAuthState();
   renderProviderAccountCard();

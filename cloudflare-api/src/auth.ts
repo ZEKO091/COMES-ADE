@@ -323,7 +323,7 @@ export async function handleAuthRoutes(
   }
 
   if (request.method === 'GET' && url.pathname === '/v1/auth/me') {
-    const user = await userFromRequest(env.DB, request);
+    const user = await getRequestUser(env.DB, request);
     if (!user) return json({ error: 'Unauthorized' }, 401, request, env);
     return json({ user: userPayload(user) }, 200, request, env);
   }

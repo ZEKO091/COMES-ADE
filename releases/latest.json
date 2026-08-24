@@ -1,0 +1,19 @@
+{
+  "version": "1.0.1",
+  "notes": "Actualizacion ComesADE 1.0.1",
+  "pub_date": "2026-08-24T00:57:24.853Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRE1ZSE8xR3BYWkgzYW9lTWlNdVZSLy9xaEFzN1Q4dWxOaWpBdk1XclhQcWlzS0NvZGFKQ1pmWVp6STgvSjIydzhZTzRMSWJPVlFoZFY2dTBtdnBra25xVFdBOVRKd3c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NTMzMDAwCWZpbGU6Q29tZXNBREVfMS4wLjFfeDY0LXNldHVwLmV4ZQpCWGRkSDdtSGZ4MkUzYUFXTUJzYWlwcVdXc21DK1BJYkdZSTMxZndocTZmNWdyaTRldkhlNEJuYjR5NE5UL1VEVkc2OEpZbjJXc1ZGTmQ1Mit3RWNDZz09Cg==",
+      "url": "https://github.com/ZEKO091/COMES-ADE/releases/download/v1.0.1/ComesADE_1.0.1_x64-setup.exe"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRE1ZSE8xR3BYWkhIQjU4YnZXVnJ5QlR2RnRkR2pIZ2FmckxmcGVCL0FMcDNMWW0wRmZtVWk4eklCWDhDbVF1T0NQTk9nbXRET05tNEVINnlMYUxrLzFMTXdHeGY2Q1E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NTMzMDAwCWZpbGU6Q29tZXNBREVfMS4wLjFfeDY0X2VuLVVTLm1zaQpOWTE2aVNKQnJCbEMrNVl2eTZ1SXVTTXBNWkZWSTVVN2xUbWVaMVV6U0Q4bldIWEs1bk5zN0YrdWNoMHhNU0VsRGQxTkVOVmNWZklNd2t5YW5PaGJBdz09Cg==",
+      "url": "https://github.com/ZEKO091/COMES-ADE/releases/download/v1.0.1/ComesADE_1.0.1_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRE1ZSE8xR3BYWkgzYW9lTWlNdVZSLy9xaEFzN1Q4dWxOaWpBdk1XclhQcWlzS0NvZGFKQ1pmWVp6STgvSjIydzhZTzRMSWJPVlFoZFY2dTBtdnBra25xVFdBOVRKd3c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NTMzMDAwCWZpbGU6Q29tZXNBREVfMS4wLjFfeDY0LXNldHVwLmV4ZQpCWGRkSDdtSGZ4MkUzYUFXTUJzYWlwcVdXc21DK1BJYkdZSTMxZndocTZmNWdyaTRldkhlNEJuYjR5NE5UL1VEVkc2OEpZbjJXc1ZGTmQ1Mit3RWNDZz09Cg==",
+      "url": "https://github.com/ZEKO091/COMES-ADE/releases/download/v1.0.1/ComesADE_1.0.1_x64-setup.exe"
+    }
+  }
+}

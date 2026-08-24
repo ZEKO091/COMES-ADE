@@ -3,6 +3,7 @@ import { handleBetterAuthRoutes } from './better-auth';
 import { handleBillingRoutes } from './billing';
 import { handleMessageRoutes } from './message-quota';
 import { handleSpeechRoutes } from './speech-quota';
+import { expireDueManualSubscriptions } from './subscription-period';
 
 type HealthRow = {
   ok: number;
@@ -816,11 +817,25 @@ export default {
           },
           unit: 'messages_sent_per_week',
         },
+        locale: '/v1/locale',
         status: 'ok',
         timestamp: new Date().toISOString(),
         version: 'v1',
         better_auth: '/api/auth/*',
         workspaces: 'local_only',
+      }, 200, request, env);
+    }
+
+    if (request.method === 'GET' && url.pathname === '/v1/locale') {
+      const requestWithCf = request as Request & { cf?: { country?: string } };
+      const headerCountry = request.headers.get('CF-IPCountry');
+      const rawCountry = requestWithCf.cf?.country ?? headerCountry ?? '';
+      const country = rawCountry.trim().toUpperCase();
+      const validCountry = /^[A-Z]{2}$/.test(country) && country !== 'XX' && country !== 'T1';
+      return json({
+        country: validCountry ? country : null,
+        countryName: validCountry ? country : null,
+        source: 'cloudflare',
       }, 200, request, env);
     }
 
@@ -884,5 +899,13 @@ export default {
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(warmPayPal(env));
+    ctx.waitUntil((async () => {
+      try {
+        const expired = await expireDueManualSubscriptions(env.DB);
+        if (expired > 0) console.log(`[billing] expired ${expired} manual subscription(s)`);
+      } catch (error) {
+        console.error('[billing] manual subscription expiry failed', error);
+      }
+    })());
   },
 };

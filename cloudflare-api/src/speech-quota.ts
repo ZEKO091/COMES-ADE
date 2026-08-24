@@ -1,4 +1,5 @@
 import { getRequestUser } from './auth';
+import { isEntitlementActive } from './subscription-period';
 
 export const ADMIN_SPEECH_EMAIL = 'kingfrianfrian16@gmail.com';
 
@@ -30,6 +31,7 @@ export type SpeechRow = {
   status: string;
   last_payment_at: string | null;
   start_time: string | null;
+  next_billing_at: string | null;
   subscription_id: string;
 };
 
@@ -258,7 +260,8 @@ export function periodKeyFromSubscription(row: {
 export async function findSpeechSubscription(db: D1Database, email: string): Promise<SpeechRow | null> {
   const normalized = normalizeEmail(email);
   return db.prepare(`
-    SELECT d.customer_id, d.plan_type, d.status, d.last_payment_at, d.start_time, d.subscription_id
+    SELECT d.customer_id, d.plan_type, d.status, d.last_payment_at, d.start_time,
+           d.next_billing_at, d.subscription_id
     FROM paypal_subscription_details d
     LEFT JOIN customers c ON c.customer_id = d.customer_id
     WHERE lower(coalesce(d.subscriber_email, '')) = ?1
@@ -316,7 +319,7 @@ export async function speechQuotaForEmail(db: D1Database, email: string): Promis
       message: 'No hay una suscripción ComesADE ligada a esa cuenta.',
     };
   }
-  const active = ['active', 'trialing', 'trial'].includes(row.status.toLowerCase());
+  const active = isEntitlementActive(row.status, row.subscription_id, row.next_billing_at);
   const plan = active ? normalizeSpeechPlan(row.plan_type) : 'none';
   if (!active || plan === 'none') {
     return {
