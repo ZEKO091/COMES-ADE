@@ -1,0 +1,56 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+
+env:
+  # Public GitHub App client ID used by the desktop Device Flow.
+  VITE_GITHUB_CLIENT_ID: Ov23likU101MbFvs0gWw
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri macOS (.app)
+        # Local config skips updater signatures (no TAURI_SIGNING_PRIVATE_KEY needed).
+        run: npm run tauri build -- --config src-tauri/tauri.local.conf.json --bundles app
+
+      - name: Package ComesADE.app.zip
+        run: |
+          set -euo pipefail
+          app_path="$(find src-tauri/target -type d -name 'ComesADE.app' | head -n 1)"
+          if [[ -z "$app_path" ]]; then
+            echo "No se encontró ComesADE.app"
+            find src-tauri/target -type d -name '*.app' -print || true
+            exit 1
+          fi
+          mkdir -p dist-macos
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" dist-macos/ComesADE.app.zip
+          echo "Packaged from: $app_path"
+          ls -la dist-macos
+
+      - name: Upload macOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-build
+          path: |
+            dist-macos/ComesADE.app.zip
+            src-tauri/target/release/bundle/macos/**
+            src-tauri/target/*/release/bundle/macos/**
+          if-no-files-found: error

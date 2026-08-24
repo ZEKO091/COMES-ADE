@@ -11,4 +11,5 @@ if [[ -n "${TAURI_TARGET:-}" ]]; then
   target_args+=(--target "$TAURI_TARGET")
 fi
 
-npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles dmg "${target_args[@]}"
+# Build the .app bundle (and updater .app.tar.gz). No DMG.
+npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles app "${target_args[@]}"

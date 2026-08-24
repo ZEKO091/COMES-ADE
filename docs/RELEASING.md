@@ -76,7 +76,7 @@ export APPLE_API_KEY_PATH="$PWD/private_keys/AuthKey_${APPLE_API_KEY}.p8"
 npm run release:macos:signed
 ```
 
-Sin notarización (solo build + DMG local para pruebas):
+Sin notarización (solo build + .app local para pruebas):
 
 ```bash
 npm run release:macos
@@ -84,19 +84,20 @@ npm run release:macos
 
 Artefactos estables en `releases/`:
 
-- `ComesADE-Setup-arm64.dmg` (Apple Silicon)
-- `ComesADE-Setup-x64.dmg` (Intel)
+- Windows: `ComesADE-Setup.exe`
+- Mac Apple Silicon: `ComesADE-arm64.app.zip` (contiene `ComesADE.app`)
+- Mac Intel: `ComesADE-x64.app.zip` (contiene `ComesADE.app`)
 
-En CI, el workflow `Signed desktop builds` genera ambos DMG al publicar un tag
-`v*` y los sube a GitHub Releases junto a `latest.json`. `APPLE_CERTIFICATE`
-debe contener el `.p12` en Base64 y `APPLE_CERTIFICATE_PASSWORD` su contraseña
-solo si usas el flujo firmado/notarizado local. La clave `.p8` y el certificado
-se inyectan como secretos temporales; nunca se committean. Para generar Intel y
-Apple Silicon se puede definir `TAURI_TARGET` como `x86_64-apple-darwin` o
+En CI, el workflow `Signed desktop builds` genera el `.exe` y los `.app.zip`
+al publicar un tag `v*` y los sube a GitHub Releases junto a `latest.json`.
+`APPLE_CERTIFICATE` debe contener el `.p12` en Base64 y
+`APPLE_CERTIFICATE_PASSWORD` su contraseña solo si usas el flujo
+firmado/notarizado local. La clave `.p8` y el certificado se inyectan como
+secretos temporales; nunca se committean. Para generar Intel y Apple Silicon
+se puede definir `TAURI_TARGET` como `x86_64-apple-darwin` o
 `aarch64-apple-darwin`.
 
-Desde Windows no se puede generar el instalador Mac: usa un Mac o el workflow
-de GitHub Actions.
+Desde Windows no se puede generar el `.app` de Mac: usa un Mac o GitHub Actions.
 
 ## Actualizaciones firmadas
 
@@ -151,7 +152,7 @@ clave no usa una contraseña vacia.
 ## Lista antes de publicar
 
 - El nombre legal coincide con el certificado y el publisher del bundle.
-- Todos los `.exe`, `.msi`, `.dmg` y apps están firmados.
+- Todos los `.exe`, `.msi`, `.app.zip` y firmas del updater esten firmados.
 - Las firmas se verifican después del empaquetado y antes de subir el archivo.
 - No se modifica ningún artefacto después de firmarlo.
 - No se añaden exclusiones de Defender ni instrucciones para desactivar

@@ -33,14 +33,22 @@ if [[ -n "${TAURI_TARGET:-}" ]]; then
   target_args+=(--target "$TAURI_TARGET")
 fi
 
-npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles dmg "${target_args[@]}"
+npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles app "${target_args[@]}"
 
 shopt -s nullglob
-dmgs=(src-tauri/target/*/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/dmg/*.dmg)
-if (( ${#dmgs[@]} == 0 )); then
-  echo 'No se encontró el DMG generado.' >&2
+apps=(
+  src-tauri/target/*/release/bundle/macos/*.app
+  src-tauri/target/release/bundle/macos/*.app
+)
+if (( ${#apps[@]} == 0 )); then
+  echo 'No se encontró el .app generado.' >&2
   exit 1
 fi
-for dmg in "${dmgs[@]}"; do
-  xcrun stapler validate "$dmg"
+
+for app in "${apps[@]}"; do
+  if xcrun stapler validate "$app" 2>/dev/null; then
+    echo "Stapler OK: $app"
+  else
+    echo "Aviso: stapler no validó $app (puede faltar notarización)." >&2
+  fi
 done

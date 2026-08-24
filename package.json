@@ -22,6 +22,8 @@
     "publish:macos": "bash scripts/publish-macos.sh",
     "release:macos": "npm run build:macos:updater && npm run publish:macos",
     "release:macos:signed": "npm run build:macos:signed && npm run publish:macos",
+    "package:macos": "bash scripts/package-macos-local.sh",
+    "package:windows": "node scripts/tauri.mjs build --config src-tauri/tauri.local.conf.json --bundles nsis && npm run publish:desktop",
     "generate:updater-manifest": "node scripts/generate-updater-manifest.mjs"
   },
   "dependencies": {
