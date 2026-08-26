@@ -2,7 +2,8 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -22,6 +23,7 @@ const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_tok
 const GITHUB_API_VERSION: &str = "2022-11-28";
 const GITHUB_KEYRING_SERVICE: &str = "com.comesade.desktop";
 const GITHUB_KEYRING_ACCOUNT: &str = "github-user-credentials";
+const GIT_CLONE_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -887,7 +889,7 @@ pub fn github_create_repository(
 }
 
 fn clone_destination(destination: &str) -> Result<PathBuf, String> {
-    let target = PathBuf::from(destination.trim().trim_matches('"'));
+    let target = crate::clean_windows_path(PathBuf::from(destination.trim().trim_matches('"')));
     if target.as_os_str().is_empty() {
         return Err("El destino del clone es obligatorio.".to_string());
     }
@@ -952,11 +954,37 @@ fn git_clone_with_token(
     }
     #[cfg(windows)]
     command.creation_flags(crate::CREATE_NO_WINDOW);
-    command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| format!("No se pudo iniciar Git clone: {error}"))
+    let mut child = command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("No se pudo iniciar Git clone: {error}"))?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Ok(Output {
+                    status,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                });
+            }
+            Ok(None) if started.elapsed() >= GIT_CLONE_TIMEOUT => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(
+                    "Git clone tardo mas de 90 segundos y se detuvo. Comprueba la red e intentalo de nuevo."
+                        .to_string(),
+                );
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("No se pudo comprobar el estado de Git clone: {error}"));
+            }
+        }
+    }
 }
 
 fn command_error(output: &Output, fallback: &str) -> String {

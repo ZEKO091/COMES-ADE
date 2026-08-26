@@ -11,6 +11,7 @@ const PID_FILE = join(ROOT, '.tauri-dev.pid');
 const LOG_FILE = join(ROOT, '.tauri-dev.log');
 const CARGO_TARGET_DIR = join(ROOT, 'src-tauri', 'target');
 const SANDBOX_MARKER = 'cursor-sandbox-cache';
+const HIDE_CONSOLE_SCRIPT = join(ROOT, 'scripts', 'hide-background-console.ps1');
 
 const args = process.argv.slice(2);
 const isDev = args[0] === 'dev';
@@ -34,6 +35,11 @@ function tauriEnv() {
   env.CARGO_TARGET_DIR = CARGO_TARGET_DIR;
   env.TMP = env.TMP && !env.TMP.includes(SANDBOX_MARKER) ? env.TMP : userTemp;
   env.TEMP = env.TEMP && !env.TEMP.includes(SANDBOX_MARKER) ? env.TEMP : userTemp;
+  if (foreground) {
+    delete env.COMESADE_BACKGROUND;
+  } else {
+    env.COMESADE_BACKGROUND = '1';
+  }
   return env;
 }
 
@@ -66,9 +72,31 @@ function spawnTauriBackground() {
     env: tauriEnv(),
     detached: true,
     stdio: ['ignore', logFd, logFd],
-    windowsHide: false,
+    // The desktop process owns its own UI. Keep the Node/Tauri launcher
+    // completely detached so Windows does not create a console window for
+    // users who start ComesADE from a normal desktop launcher.
+    windowsHide: true,
     shell: false,
   });
+  if (process.platform === 'win32' && typeof child.pid === 'number') {
+    const consoleHelper = spawn('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-WindowStyle',
+      'Hidden',
+      '-File',
+      HIDE_CONSOLE_SCRIPT,
+      '-RootPid',
+      String(child.pid),
+    ], {
+      cwd: ROOT,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      shell: false,
+    });
+    consoleHelper.unref();
+  }
   if (typeof child.pid === 'number') {
     writeFileSync(PID_FILE, String(child.pid), 'utf8');
   }

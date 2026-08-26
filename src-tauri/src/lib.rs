@@ -261,6 +261,24 @@ pub(crate) fn augmented_path() -> Option<OsString> {
 }
 
 #[cfg(windows)]
+fn hide_background_console() {
+    if std::env::var_os("COMESADE_BACKGROUND").is_none() {
+        return;
+    }
+
+    unsafe {
+        use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleWindow};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+        let console_window = GetConsoleWindow();
+        if !console_window.is_null() {
+            ShowWindow(console_window, SW_HIDE);
+            let _ = FreeConsole();
+        }
+    }
+}
+
+#[cfg(windows)]
 fn shell_candidates() -> Vec<(&'static str, &'static str, &'static str)> {
     vec![
         ("powershell", "Windows PowerShell", "powershell.exe"),
@@ -1349,7 +1367,7 @@ fn default_workspace_path() -> Result<String, String> {
 
     documents
         .canonicalize()
-        .map(|resolved| resolved.to_string_lossy().into_owned())
+        .map(|resolved| clean_windows_path(resolved).to_string_lossy().into_owned())
         .map_err(|error| format!("No se pudo validar Documentos: {error}"))
 }
 
@@ -2011,6 +2029,9 @@ fn allow_local_microphone(window: &tauri::WebviewWindow) {
 }
 
 pub fn run() {
+    #[cfg(windows)]
+    hide_background_console();
+
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
