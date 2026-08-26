@@ -11327,4 +11327,531 @@ button.model-effort-chip.is-selected {
   max-width: 100%;
 }
 
+/* Main menu window chrome: the landing screen is also the title area for the
+   borderless desktop window, so it must remain usable at every window size. */
+.main-menu-backdrop {
+  align-items: stretch;
+  justify-items: stretch;
+  padding: clamp(12px, 2.2vw, 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 
+.main-menu-backdrop .main-menu-panel {
+  box-sizing: border-box;
+  width: min(1120px, 100%);
+  min-width: 0;
+  max-height: calc(100vh - clamp(24px, 4.4vw, 64px));
+  max-height: calc(100dvh - clamp(24px, 4.4vw, 64px));
+  min-height: 0;
+  margin: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.main-menu-backdrop .main-menu-topline {
+  user-select: none;
+  cursor: grab;
+}
+
+.main-menu-backdrop .main-menu-topline:active {
+  cursor: grabbing;
+}
+
+.main-menu-topline-actions,
+.main-menu-window-controls {
+  display: flex;
+  align-items: center;
+}
+
+.main-menu-topline-actions {
+  flex: 0 0 auto;
+  gap: 10px;
+  min-width: 0;
+}
+
+.main-menu-window-controls {
+  gap: 4px;
+}
+
+.main-menu-window-control {
+  display: inline-flex;
+  width: 32px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.main-menu-window-control svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.main-menu-window-control:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-strong);
+}
+
+.main-menu-window-control-close:hover {
+  border-color: rgba(255, 104, 104, 0.4);
+  background: rgba(190, 55, 55, 0.75);
+  color: #fff;
+}
+
+.main-menu-window-control:focus-visible {
+  outline: 2px solid rgba(91, 168, 255, 0.9);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .main-menu-backdrop .main-menu-topline {
+    align-items: flex-start;
+  }
+
+  .main-menu-topline-actions {
+    gap: 6px;
+  }
+
+  .main-menu-local-state {
+    min-width: 30px;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .main-menu-local-state span {
+    display: none;
+  }
+
+  .main-menu-window-control {
+    width: 30px;
+    height: 28px;
+  }
+}
+
+/* Final landing-screen polish: use the whole desktop surface and reduce the
+   layered, high-contrast treatment so the interface feels quieter and more intentional. */
+.main-menu-backdrop {
+  padding: 4px;
+  background: #151719 !important;
+}
+
+.main-menu-backdrop .main-menu-panel {
+  width: 100%;
+  max-width: none;
+  max-height: calc(100vh - 8px);
+  max-height: calc(100dvh - 8px);
+  margin: 0;
+  padding: 20px 28px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: #191b1e;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+}
+
+.main-menu-backdrop .main-menu-panel::before {
+  display: none;
+}
+
+.main-menu-backdrop .main-menu-panel::after {
+  right: 4%;
+  left: 4%;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.main-menu-backdrop .main-menu-brand .brand-mark,
+.main-menu-backdrop .main-menu-local-state,
+.main-menu-backdrop .main-menu-hint,
+.main-menu-backdrop .main-menu-current,
+.main-menu-backdrop .main-menu-deck,
+.main-menu-backdrop .main-menu-tools,
+.main-menu-backdrop .main-menu-action,
+.main-menu-backdrop .workspace-list-item {
+  box-shadow: none;
+}
+
+.main-menu-backdrop .main-menu-brand .brand-mark,
+.main-menu-backdrop .main-menu-local-state,
+.main-menu-backdrop .main-menu-hint {
+  background: #1d2023;
+}
+
+.main-menu-backdrop .main-menu-deck,
+.main-menu-backdrop .main-menu-tools {
+  padding: 14px;
+  border-color: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  background: #111315;
+}
+
+.main-menu-backdrop .main-menu-current {
+  min-height: 96px;
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: #202225;
+}
+
+.main-menu-backdrop .main-menu-current:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #25282b;
+  box-shadow: none;
+}
+
+.main-menu-backdrop .main-menu-current-empty,
+.main-menu-backdrop .main-menu-current-empty:hover {
+  background: #1b1d20;
+}
+
+.main-menu-backdrop .main-menu-picker {
+  border-color: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  background: #16181a;
+  box-shadow: none;
+}
+
+.main-menu-backdrop .workspace-list-item {
+  border-color: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: #17191c;
+}
+
+.main-menu-backdrop .workspace-list-item:hover,
+.main-menu-backdrop .workspace-list-item-active {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #1d2023;
+  box-shadow: none;
+}
+
+.main-menu-backdrop .main-menu-action {
+  min-height: 82px;
+  border-color: transparent;
+  border-radius: 11px;
+  background: #1d2023;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.main-menu-backdrop .main-menu-action:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #25282b;
+  box-shadow: none;
+  transform: none;
+}
+
+.main-menu-backdrop .main-menu-action:active {
+  background: #191b1e;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+  transform: none;
+}
+
+.main-menu-backdrop .main-menu-action .panel-icon,
+.main-menu-backdrop .main-menu-current .panel-icon {
+  border-color: rgba(255, 255, 255, 0.07);
+  background: #25282b;
+  box-shadow: none;
+}
+
+.main-menu-backdrop .primary-button,
+.main-menu-backdrop .secondary-button {
+  border: 1px solid transparent !important;
+  border-radius: 9px;
+  background: #25282b !important;
+  box-shadow: none !important;
+  text-shadow: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.main-menu-backdrop .primary-button:hover,
+.main-menu-backdrop .secondary-button:hover {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: #303438 !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.main-menu-backdrop .primary-button:active,
+.main-menu-backdrop .secondary-button:active {
+  background: #202326 !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+  transform: none;
+}
+
+.main-menu-backdrop .github-repository-row.is-opening {
+  border-color: rgba(122, 168, 214, 0.55);
+  background: #22272c;
+  cursor: progress;
+  opacity: 0.78;
+}
+
+.main-menu-backdrop .github-repository-row.is-opening .github-repository-meta i {
+  color: var(--text-strong);
+}
+
+@media (max-width: 720px) {
+  .main-menu-backdrop .main-menu-panel {
+    padding: 16px 14px 12px;
+    border-radius: 12px;
+  }
+}
+
+/* The workspace picker is a command surface, not a document. */
+.main-menu-backdrop:not(.auth-gate),
+.main-menu-backdrop:not(.auth-gate) * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.main-menu-backdrop .main-menu-current-empty,
+.main-menu-backdrop .main-menu-current-empty:hover {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.main-menu-backdrop .main-menu-current-empty .main-menu-workspace-state {
+  border: 0;
+  background: #2a2d31;
+  box-shadow: none;
+  color: var(--text-strong);
+}
+
+/* Main-menu type polish: keep workspace metadata readable and human-scaled. */
+.main-menu-backdrop .main-menu-workspace-label {
+  color: #a4a9b0;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  line-height: 1.2;
+}
+
+.main-menu-backdrop .main-menu-current strong {
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.main-menu-backdrop .main-menu-current small,
+.main-menu-backdrop .workspace-list-item small,
+.main-menu-backdrop .main-menu-action small {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.main-menu-backdrop .main-menu-current .workspace-repo-label,
+.main-menu-backdrop .workspace-list-item .workspace-repo-label {
+  color: #aeb4bc !important;
+  font-size: 11px !important;
+  font-weight: 500;
+}
+
+.main-menu-backdrop .main-menu-current small:not(.workspace-repo-label),
+.main-menu-backdrop .workspace-list-item small:not(.workspace-repo-label) {
+  color: #858c95;
+}
+
+.main-menu-backdrop .main-menu-section-heading {
+  color: #9da3aa;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+}
+
+.main-menu-backdrop .main-menu-section-heading small {
+  color: #b0b5bc;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.main-menu-backdrop .main-menu-action strong {
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.main-menu-backdrop .main-menu-action small {
+  color: #969ca4;
+}
+
+/* Image attachments open as solid, browser-like workspace tabs. */
+.tool-tabs {
+  gap: 6px;
+  padding: 8px 14px 0;
+  border-bottom: 1px solid #292c31;
+  background: #101113;
+}
+
+.tool-tab {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid #30343a;
+  border-bottom-color: #25282c;
+  border-radius: 9px 9px 0 0;
+  background: #202327;
+  color: #c6c9ce;
+  box-shadow: none;
+  user-select: none;
+}
+
+.tool-tab:hover {
+  border-color: #41464e;
+  background: #292d32;
+  color: #f4f5f6;
+}
+
+.tool-tab.tool-tab-active {
+  border-color: #454a52;
+  border-bottom-color: #34383e;
+  background: #34383e;
+  color: #ffffff;
+}
+
+.tool-tab b {
+  color: #aeb3ba;
+}
+
+.tool-tab b:hover {
+  background: #4a4f57;
+  color: #ffffff;
+}
+
+.composer-capture {
+  cursor: zoom-in;
+}
+
+.composer-capture-label {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  max-width: calc(100% - 10px);
+  overflow: hidden;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(8, 9, 11, 0.82);
+  color: #ffffff;
+  font: 10px/1.2 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.native-agent-capture {
+  position: relative;
+  display: inline-flex;
+  max-width: min(100%, 280px);
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.native-agent-capture span {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(8, 9, 11, 0.82);
+  color: #ffffff;
+  font: 10px/1.2 var(--font-mono);
+  pointer-events: none;
+}
+
+.native-agent-capture:focus-visible,
+.composer-capture:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+
+.image-tool-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #24282d;
+  color: #d5d8dc;
+}
+
+.image-tool-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.image-tool-canvas {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 24px;
+  background: #0b0c0e;
+}
+
+.image-tool-canvas img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border: 1px solid #34383e;
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+/* Keep the session rail a flat surface at every window size/theme. */
+.sidebar {
+  background: #141414 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  opacity: 1;
+}
+
+/* Keep the landing menu sections from collapsing into one another vertically. */
+.main-menu-backdrop .main-menu-layout {
+  flex: 0 0 auto;
+  min-height: max-content;
+}
+
+.main-menu-backdrop .main-menu-tools {
+  display: flex;
+  min-height: max-content;
+  flex-direction: column;
+}
+
+.main-menu-backdrop .main-menu-current,
+.main-menu-backdrop .main-menu-picker,
+.main-menu-backdrop .main-menu-workspace-shelf,
+.main-menu-backdrop .main-menu-actions-heading,
+.main-menu-backdrop .main-menu-actions {
+  flex: 0 0 auto;
+}
+
+.main-menu-backdrop .main-menu-actions-heading {
+  margin-top: 18px;
+}
+
+/* Use one calm fill for the primary workspace action. */
+.main-menu-backdrop .main-menu-workspace-state {
+  background: #2a2d31 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}

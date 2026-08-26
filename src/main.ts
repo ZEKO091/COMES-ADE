@@ -215,6 +215,13 @@ type BrowserPanel = {
   webview: Webview | null;
 };
 
+type ImagePanel = {
+  id: string;
+  title: string;
+  sourceId: string;
+  element: HTMLElement;
+};
+
 const appElement = document.querySelector<HTMLDivElement>('#app');
 if (!appElement) throw new Error('No se encontró el contenedor principal.');
 const app = appElement;
@@ -1365,7 +1372,7 @@ function renderAiContextBar(): void {
   const live = sessions.filter((session) => session.status === 'running' && !exitedSessions.has(session.id));
   if (live[0]) chips.push(live[0].name);
   for (const pick of designPicks.slice(0, 6)) {
-    chips.push(pick.component || pick.tag + (pick.id ? '#' + pick.id : ''));
+    chips.push(pick.imageReference || pick.component || pick.tag + (pick.id ? '#' + pick.id : ''));
   }
   bar.hidden = chips.length === 0;
   bar.innerHTML = chips.length
@@ -1445,12 +1452,17 @@ function composerEditorContext(): string {
   if (designPicks.length) {
     lines.push('Design Mode selection (screenshots attached as images):');
     for (const [index, pick] of designPicks.slice(0, 8).entries()) {
+      if (pick.imageReference) {
+        lines.push(`${index + 1}. ${pick.imageReference} (pasted image attachment)`);
+        continue;
+      }
       lines.push(`${index + 1}. ${pick.kind === 'draw' ? 'Capture' : pick.component || pick.tag}${pick.id ? '#' + pick.id : ''} xpath=${pick.xpath}`);
       lines.push(`   css: ${Object.entries(pick.css).map(([key, value]) => `${key}:${value}`).join('; ')}`);
       if (pick.text) lines.push(`   text: ${pick.text.slice(0, 180)}`);
       if (pick.note) lines.push(`   note: ${pick.note}`);
     }
-    lines.push(`Page: ${designPicks[0]?.url ?? ''}`);
+    const page = designPicks.find((pick) => pick.url)?.url;
+    if (page) lines.push(`Page: ${page}`);
   }
   if (selection) {
     const range = monacoSelection && !monacoSelection.isEmpty()
@@ -1609,6 +1621,92 @@ async function ensureDesignBridge(): Promise<number> {
   return info.port;
 }
 
+function imagePickLabel(pick: DesignPick, fallbackIndex: number): string {
+  return pick.imageReference || `Image[#${fallbackIndex + 1}]`;
+}
+
+function registerImageSource(src: string, label: string): string {
+  const key = `${src}\u0000${label}`;
+  const existing = imageSourceKeys.get(key);
+  if (existing) return existing;
+  const sourceId = `image-source-${imageSourceSequence++}`;
+  imageSourceKeys.set(key, sourceId);
+  imageSources.set(sourceId, { src, label });
+  imageReferenceBySource.set(src, label);
+  return sourceId;
+}
+
+function openRegisteredImage(sourceId: string): void {
+  const source = imageSources.get(sourceId);
+  if (!source) return;
+  openImagePanel(sourceId);
+}
+
+function insertComposerText(input: HTMLTextAreaElement, value: string): void {
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  const prefix = before && !/\s$/.test(before) ? ' ' : '';
+  const suffix = after && !/^\s/.test(after) ? ' ' : ' ';
+  input.setRangeText(`${prefix}${value}${suffix}`, start, end, 'end');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function readClipboardImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('The pasted image could not be read.'));
+    }, { once: true });
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('The pasted image could not be read.')), { once: true });
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addPastedImage(file: File, input: HTMLTextAreaElement): Promise<void> {
+  if (!file.type.startsWith('image/')) return;
+  const image = await readClipboardImage(file);
+  const imageReference = `Image[#${pastedImageSequence++}]`;
+  const pick: DesignPick = {
+    tag: 'image',
+    id: '',
+    className: '',
+    xpath: '',
+    text: '',
+    css: {},
+    component: null,
+    rect: { x: 0, y: 0, w: 0, h: 0 },
+    url: '',
+    kind: 'draw',
+    note: file.name ? `Pasted image: ${file.name}` : 'Pasted image',
+    image,
+    imageReference,
+  };
+  designPicks = [...designPicks, pick].slice(-8);
+  imageReferenceBySource.set(image, imageReference);
+  insertComposerText(input, imageReference);
+  renderDesignToolbar();
+  focusComposer();
+}
+
+async function handleComposerPaste(event: ClipboardEvent, input: HTMLTextAreaElement): Promise<void> {
+  const files = Array.from(event.clipboardData?.items ?? [])
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+  if (!files.length) return;
+  event.preventDefault();
+  for (const file of files) {
+    try {
+      await addPastedImage(file, input);
+    } catch (error) {
+      showToast(`Image paste failed: ${String(error)}`, true);
+    }
+  }
+}
+
 function renderComposerCaptures(): void {
   const host = document.querySelector<HTMLElement>('#composer-captures');
   if (!host) return;
@@ -1616,7 +1714,9 @@ function renderComposerCaptures(): void {
   host.hidden = images.length === 0;
   host.innerHTML = images.map((pick, index) => {
     const source = designPicks.indexOf(pick);
-    return `<span class="composer-capture"><img src="${pick.image}" alt="Captura ${index + 1}"><button type="button" data-remove-pick="${source}" aria-label="Quitar captura">×</button></span>`;
+    const label = imagePickLabel(pick, index);
+    const imageSource = registerImageSource(pick.image!, label);
+    return `<span class="composer-capture" data-image-source="${imageSource}" title="Double-click to open ${escapeHtml(label)}"><img src="${escapeHtml(pick.image!)}" alt="${escapeHtml(label)}"><span class="composer-capture-label">${escapeHtml(label)}</span><button type="button" data-remove-pick="${source}" aria-label="Quitar captura">×</button></span>`;
   }).join('');
 }
 
@@ -1633,8 +1733,8 @@ function renderDesignToolbar(): void {
   if (picks) {
     picks.innerHTML = designPicks.length
       ? designPicks.map((pick, index) => {
-          const label = pick.kind === 'draw' ? 'Captura' : (pick.component || pick.tag) + (pick.id ? '#' + pick.id : '');
-          const thumb = pick.image ? `<img src="${pick.image}" alt="">` : '';
+          const label = pick.image ? imagePickLabel(pick, index) : (pick.kind === 'draw' ? 'Captura' : (pick.component || pick.tag) + (pick.id ? '#' + pick.id : ''));
+          const thumb = pick.image ? `<img src="${escapeHtml(pick.image)}" alt="${escapeHtml(label)}">` : '';
           return `<span class="design-pick">${thumb}${escapeHtml(label)}<button type="button" data-remove-pick="${index}" aria-label="Quitar">×</button></span>`;
         }).join('')
       : '<small>Arrastra una zona del preview para capturarla</small>';
@@ -4372,7 +4472,11 @@ function appendNativeAgentLine(kind: string, text: string, heading?: string, ima
   const line = document.createElement('div');
   line.className = 'native-agent-line native-agent-line-' + kind;
   const gallery = images?.length
-    ? `<div class="native-agent-captures">${images.map((src) => `<img src="${src}" alt="${escapeHtml(t('chrome.captureAlt'))}">`).join('')}</div>`
+    ? `<div class="native-agent-captures">${images.map((src, index) => {
+        const label = imageReferenceBySource.get(src) || `Image[#${index + 1}]`;
+        const sourceId = registerImageSource(src, label);
+        return `<button class="native-agent-capture" type="button" data-image-source="${sourceId}" title="Double-click to open ${escapeHtml(label)}"><img src="${escapeHtml(src)}" alt="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
+      }).join('')}</div>`
     : '';
   if (kind === 'thought' || kind === 'step') {
     line.innerHTML = `<div class="agent-step"><pre></pre></div>`;
@@ -4433,8 +4537,10 @@ async function sendNativeAgentMessage(): Promise<void> {
     await openAccountsModal();
     return;
   }
-  const images = designPicks.map((pick) => pick.image).filter((value): value is string => Boolean(value));
-  const content = nativeAgentInput.value.trim() || (images.length ? 'Cambia el UI de esta captura en el codigo real del workspace.' : '');
+  const imagePicks = designPicks.filter((pick) => pick.image);
+  const images = imagePicks.map((pick) => pick.image!).filter(Boolean);
+  const imageReferences = imagePicks.map((pick, index) => imagePickLabel(pick, index));
+  const content = nativeAgentInput.value.trim() || (images.length ? imageReferences.join(' ') : '');
   if (!content) return;
   closeSlashCommandMenu();
   if (await tryHandleLocalSlashCommand(content, 'a')) {
@@ -5014,23 +5120,59 @@ function joinWorkspacePath(base: string, name: string): string {
   return `${base.replace(/[\\/]+$/, '')}${separator}${name}`;
 }
 
-function localWorkspaceForGithubRepo(repository: GithubRepository): WorkspaceInfo | undefined {
-  const repoName = repository.name.toLowerCase();
-  const fullName = repository.fullName.toLowerCase();
-  return workspaces.find((workspace) => {
-    if (workspace.repository?.toLowerCase() === fullName) return true;
-    const normalized = workspace.path.replace(/\\/g, '/').toLowerCase();
-    const workspaceName = workspace.name.toLowerCase();
-    return workspaceName === repoName
-      || workspaceName === fullName
-      || normalized.endsWith(`/${repoName}`)
-      || normalized.endsWith(`/${fullName}`);
+const REPOSITORY_OPEN_TIMEOUT_MS = 120_000;
+const REPOSITORY_COMMAND_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+    void operation
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error: unknown) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        reject(error);
+      });
   });
+}
+
+function invokeWithTimeout<T>(
+  command: string,
+  args: Record<string, unknown>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return withTimeout(invoke<T>(command, args), timeoutMs, timeoutMessage);
+}
+
+function localWorkspaceForGithubRepo(repository: GithubRepository): WorkspaceInfo | undefined {
+  const fullName = repository.fullName.toLowerCase();
+  return workspaces.find((workspace) => workspace.repository?.toLowerCase() === fullName);
 }
 
 async function detectWorkspaceGithubRepository(path: string): Promise<string | null> {
   try {
-    return await invoke<string | null>('git_github_remote', { path });
+    return await invokeWithTimeout<string | null>(
+      'git_github_remote',
+      { path },
+      REPOSITORY_COMMAND_TIMEOUT_MS,
+      'Timed out while checking the local Git repository.',
+    );
   } catch {
     return null;
   }
@@ -5077,7 +5219,7 @@ function githubRepositoryRowsHtml(search = '', selectedFullName = ''): string {
       .filter(Boolean)
       .join(' · ');
     const updated = formatGithubDate(repository.updatedAt);
-    return `<button class="github-repository-row${selected ? ' is-selected' : ''}" data-github-repository="${escapeHtml(repository.fullName)}" type="button">
+    return `<button class="github-repository-row${selected ? ' is-selected' : ''}" data-github-repository="${escapeHtml(repository.fullName)}" type="button" aria-selected="${String(selected)}">
       <span class="github-repository-mark">${icons.github}</span>
       <span class="github-repository-copy"><strong>${escapeHtml(repository.fullName)}</strong><small>${escapeHtml(repository.description || t('menu.githubNoDescription'))}</small></span>
       <span class="github-repository-meta"><i>${escapeHtml(flags)}</i><small>${escapeHtml(repository.defaultBranch ? `↳ ${repository.defaultBranch}` : '')}${updated ? ` · ${escapeHtml(updated)}` : ''}</small></span>
@@ -5103,29 +5245,50 @@ function renderMainMenuGithubRepos(): void {
   list.innerHTML = githubRepositoryRowsHtml();
 }
 
-async function openOrCloneGithubRepository(repository: GithubRepository, enterAfter = true): Promise<void> {
+async function openOrCloneGithubRepository(
+  repository: GithubRepository,
+  enterAfter = true,
+  onStatus?: (status: string) => void,
+): Promise<void> {
+  onStatus?.('CHECKING LOCAL COPY…');
   const existing = localWorkspaceForGithubRepo(repository);
   if (existing) {
+    onStatus?.('OPENING…');
     await activateWorkspace(existing, enterAfter);
     return;
   }
-  if (!(await ensureGitAvailable())) return;
-  const basePath = await invoke<string>('default_workspace_path');
+  onStatus?.('FINDING WORKSPACE…');
+  const basePath = await invokeWithTimeout<string>(
+    'default_workspace_path',
+    {},
+    REPOSITORY_COMMAND_TIMEOUT_MS,
+    'Timed out while locating the default workspace folder.',
+  );
   const destination = joinWorkspacePath(basePath, repository.name);
   try {
-    await invoke<string>('github_clone_repository', {
-      clientId: GITHUB_CLIENT_ID,
-      repository: repository.fullName,
-      destination,
-    });
+    onStatus?.(repository.private ? 'CLONING PRIVATE REPOSITORY…' : 'CLONING…');
+    const cloneCommand = repository.private ? 'github_clone_repository' : 'clone_repository';
+    const cloneArgs = repository.private
+      ? { clientId: GITHUB_CLIENT_ID, repository: repository.fullName, destination }
+      : { url: repository.cloneUrl, destination };
+    await invokeWithTimeout<string>(
+      cloneCommand,
+      cloneArgs,
+      REPOSITORY_OPEN_TIMEOUT_MS,
+      'GitHub did not finish opening this repository within two minutes.',
+    );
   } catch (error) {
     const message = String(error);
     if (/destino del clone|ya existe|not empty|already exists/i.test(message)) {
-      await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
-      return;
+      const existingRemote = await detectWorkspaceGithubRepository(destination);
+      if (existingRemote?.toLowerCase() === repository.fullName.toLowerCase()) {
+        await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
+        return;
+      }
     }
     throw error;
   }
+  onStatus?.('OPENING…');
   await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
   showToast(t('toast.githubCloned', { name: repository.fullName }));
 }
@@ -5270,6 +5433,10 @@ const terminals = new Map<string, TerminalInstance>();
 const sessionLaunches = new Map<string, SessionLaunchOptions>();
 const localhostPanels = new Map<string, LocalhostPanel>();
 const browserPanels = new Map<string, BrowserPanel>();
+const imagePanels = new Map<string, ImagePanel>();
+const imageSources = new Map<string, { src: string; label: string }>();
+const imageSourceKeys = new Map<string, string>();
+const imageReferenceBySource = new Map<string, string>();
 const visibleBrowserWebviews = new Set<string>();
 const browserWebviewGeometry = new Map<string, string>();
 type DesignPick = {
@@ -5285,6 +5452,7 @@ type DesignPick = {
   kind: 'element' | 'draw';
   note?: string;
   image?: string;
+  imageReference?: string;
   webviewLabel?: string;
   dpr?: number;
 };
@@ -5320,6 +5488,9 @@ function setMainMenuOpen(open: boolean): void {
 let sessionSequence = 1;
 let localhostSequence = 1;
 let browserSequence = 1;
+let imagePanelSequence = 1;
+let imageSourceSequence = 1;
+let pastedImageSequence = 1;
 let detectedAgents: AgentDefinition[] = [];
 let detectedShells: ShellDefinition[] = [];
 let agentsDetectionReady = false;
@@ -8070,7 +8241,12 @@ async function ensureGitAvailable(): Promise<boolean> {
 
   let availability: GitAvailability;
   try {
-    availability = await invoke<GitAvailability>('git_availability');
+    availability = await invokeWithTimeout<GitAvailability>(
+      'git_availability',
+      {},
+      REPOSITORY_COMMAND_TIMEOUT_MS,
+      'Timed out while checking whether Git is installed.',
+    );
     gitAvailability = availability;
   } catch (error) {
     showToast(t('toast.gitCheckFail', { error: String(error) }), true);
@@ -9401,10 +9577,14 @@ function normalizeLocalhostUrl(rawValue: string): string | null {
   }
 }
 
+function allToolIds(): string[] {
+  return [...localhostPanels.keys(), ...browserPanels.keys(), ...imagePanels.keys()];
+}
+
 function renderTools(): void {
-  const panels = [...localhostPanels.values(), ...browserPanels.values()];
+  const panels = [...localhostPanels.values(), ...browserPanels.values(), ...imagePanels.values()];
   toolTabs.innerHTML = panels.map((panel) => {
-    const label = 'title' in panel && typeof panel.title === 'string' ? panel.title : new URL(panel.url).hostname;
+    const label = 'title' in panel && typeof panel.title === 'string' ? panel.title : new URL((panel as LocalhostPanel).url).hostname;
     return `<button class="tool-tab ${panel.id === activeToolId ? 'tool-tab-active' : ''}" data-tool-id="${panel.id}" type="button">${escapeHtml(label)}<b data-close-tool="${panel.id}">${icons.close}</b></button>`;
   }).join('');
   toolEmpty.hidden = panels.length > 0;
@@ -9550,6 +9730,29 @@ function createBrowserPanel(rawUrl: string, requestedName?: string): void {
   showToast(t('toast.browserOpened', { name: title }));
 }
 
+function openImagePanel(sourceId: string): void {
+  const source = imageSources.get(sourceId);
+  if (!source) return;
+  const existing = [...imagePanels.values()].find((panel) => panel.sourceId === sourceId);
+  if (existing) {
+    activeToolId = existing.id;
+    setView('tools');
+    renderTools();
+    return;
+  }
+  const id = `image-${imagePanelSequence++}`;
+  const element = document.createElement('article');
+  element.className = 'tool-view image-tool-view';
+  element.dataset.toolId = id;
+  element.innerHTML = `<header class="tool-view-header"><div class="tool-view-title"><span class="image-tool-icon">${icons.file}</span><span><strong>${escapeHtml(source.label)}</strong><small>Image preview</small></span></div><div class="tool-view-actions"><button class="icon-button" data-close-tool="${id}" title="${escapeHtml(t('common.close'))}">${icons.close}</button></div></header><div class="image-tool-canvas"><img src="${escapeHtml(source.src)}" alt="${escapeHtml(source.label)}" draggable="false"></div>`;
+  toolStage.appendChild(element);
+  imagePanels.set(id, { id, title: source.label, sourceId, element });
+  activeToolId = id;
+  setView('tools');
+  renderTools();
+  scheduleWebviewSync();
+}
+
 async function navigateBrowserPanel(id: string, rawUrl: string): Promise<void> {
   const panel = browserPanels.get(id);
   const url = browserInputToUrl(rawUrl);
@@ -9599,7 +9802,7 @@ function closeLocalhostPanel(id: string): void {
   localhostPanels.delete(id);
   if (layoutState.workspaces[activeWorkspaceId ?? '']?.localhostUrl === panel.url) saveWorkspaceLayout({ localhostUrl: null });
   if (activeToolId === id) {
-    const toolIds = [...localhostPanels.keys(), ...browserPanels.keys()];
+    const toolIds = allToolIds();
     activeToolId = toolIds[toolIds.length - 1] ?? null;
   }
   renderTools();
@@ -9616,7 +9819,19 @@ function closeBrowserPanel(id: string): void {
   browserPanels.delete(id);
   if (layoutState.workspaces[activeWorkspaceId ?? '']?.browserUrl === panel.url) saveWorkspaceLayout({ browserUrl: null });
   if (activeToolId === id) {
-    const toolIds = [...localhostPanels.keys(), ...browserPanels.keys()];
+    const toolIds = allToolIds();
+    activeToolId = toolIds[toolIds.length - 1] ?? null;
+  }
+  renderTools();
+}
+
+function closeImagePanel(id: string): void {
+  const panel = imagePanels.get(id);
+  if (!panel) return;
+  panel.element.remove();
+  imagePanels.delete(id);
+  if (activeToolId === id) {
+    const toolIds = allToolIds();
     activeToolId = toolIds[toolIds.length - 1] ?? null;
   }
   renderTools();
@@ -9624,13 +9839,15 @@ function closeBrowserPanel(id: string): void {
 
 function closeTool(id: string): void {
   if (localhostPanels.has(id)) closeLocalhostPanel(id);
-  else closeBrowserPanel(id);
+  else if (browserPanels.has(id)) closeBrowserPanel(id);
+  else closeImagePanel(id);
 }
 
 function closeAllTools(persistLayout = true): void {
   const previousWorkspaceLayout = activeWorkspaceId ? { ...layoutState.workspaces[activeWorkspaceId] } : undefined;
   for (const id of [...localhostPanels.keys()]) closeLocalhostPanel(id);
   for (const id of [...browserPanels.keys()]) closeBrowserPanel(id);
+  for (const id of [...imagePanels.keys()]) closeImagePanel(id);
   activeToolId = null;
   if (!persistLayout && activeWorkspaceId && previousWorkspaceLayout) {
     layoutState.workspaces[activeWorkspaceId] = previousWorkspaceLayout;
@@ -10406,15 +10623,9 @@ function openMainMenu(): void {
   updateWorkspaceView();
   renderTitlebarAccount();
   const workspace = getWorkspace();
-  const footerStatus = workspace
-    ? t('menu.footerReady')
-    : workspaces.length
-      ? t('menu.footerPick')
-      : t('menu.footer');
   const workspaceCount = workspaces.length === 1 ? t('menu.savedOne') : t('menu.savedMany', { count: workspaces.length });
-  const runtimeState = connectionState.textContent?.trim() || 'LOCAL / STARTING';
   const currentWorkspace = workspace
-    ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="${escapeHtml(workspace.name)}"><span class="panel-icon panel-icon-orange">${icons.github}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(workspace.name)}</strong><small class="workspace-repo-label">${escapeHtml(workspaceRepoLabel(workspace))}</small><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span><span class="main-menu-workspace-state"><i></i><span>${escapeHtml(t('menu.enterDesktop'))}</span></span></button>`
+    ? `<button class="main-menu-current main-menu-workspace-card" id="main-menu-current" type="button" aria-label="${escapeHtml(workspace.name)}"><span class="panel-icon panel-icon-orange">${icons.github}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(workspace.name)}</strong><small class="workspace-repo-label">${escapeHtml(workspaceRepoLabel(workspace))}</small><small>${escapeHtml(compactPathLabel(workspace.path))}</small></span><span class="main-menu-workspace-state"><span>${escapeHtml(t('menu.enterDesktop'))}</span></span></button>`
     : `<div class="main-menu-current main-menu-current-empty"><span class="panel-icon panel-icon-gray">${icons.github}</span><span class="main-menu-workspace-copy"><span class="main-menu-workspace-label">${escapeHtml(t('menu.current'))}</span><strong>${escapeHtml(t('menu.noneSelected'))}</strong><small>${escapeHtml(t('menu.noneHint'))}</small></span><span class="main-menu-workspace-state"><i class="is-empty"></i><span>${escapeHtml(t('menu.notSelected'))}</span></span></div>`;
   modalRoot.innerHTML = `<div class="modal-backdrop main-menu-backdrop" id="main-menu-backdrop" role="dialog" aria-modal="true" aria-labelledby="main-menu-title" aria-describedby="main-menu-copy">
     <section class="main-menu-panel">
@@ -10423,7 +10634,12 @@ function openMainMenu(): void {
           <div class="brand-mark"><img src="${comesadeLogoUrl}" alt="" aria-hidden="true" /></div>
           <span><strong>ComesADE</strong><small>${escapeHtml(t('menu.desktop'))}</small></span>
         </div>
-        <div class="main-menu-local-state"><i></i><span>${escapeHtml(runtimeState)}</span></div>
+        <div class="main-menu-topline-actions">
+          <div class="main-menu-window-controls" aria-label="Window controls">
+            <button class="main-menu-window-control main-menu-window-control-minimize" id="main-menu-minimize" type="button" title="Minimize ComesADE" aria-label="Minimize ComesADE">${icons.minimize}</button>
+            <button class="main-menu-window-control main-menu-window-control-close" id="main-menu-close" type="button" title="Close ComesADE" aria-label="Close ComesADE">${icons.windowClose}</button>
+          </div>
+        </div>
       </header>
       <div class="main-menu-layout">
         <div class="main-menu-hero">
@@ -10432,7 +10648,6 @@ function openMainMenu(): void {
             <h2 id="main-menu-title">${escapeHtml(t('menu.title'))}</h2>
             <p class="main-menu-copy" id="main-menu-copy">${escapeHtml(t('menu.copy'))}</p>
           </div>
-          <div class="main-menu-hint"><kbd>LOCAL</kbd><span>${escapeHtml(t('menu.local'))}</span></div>
         </div>
         <div class="main-menu-stage">
           <section class="main-menu-tools">
@@ -10465,9 +10680,9 @@ function openMainMenu(): void {
           </section>
         </div>
       </div>
-      <footer class="main-menu-footer"><span><i></i>${escapeHtml(footerStatus)}</span></footer>
     </section>
   </div>`;
+  bindMainMenuWindowControls();
   syncMainMenuRuntimeState();
   document.querySelector<HTMLButtonElement>('#main-menu-current')?.addEventListener('click', () => {
     const current = getWorkspace();
@@ -10481,13 +10696,41 @@ function openMainMenu(): void {
   document.querySelector<HTMLButtonElement>('#main-menu-github-connect')?.addEventListener('click', () => { void connectGithubAccount(); });
   document.querySelector<HTMLButtonElement>('#main-menu-github-refresh')?.addEventListener('click', () => { void loadGithubRepositories(true); });
   document.querySelector<HTMLElement>('#main-menu-github-list')?.addEventListener('click', (event) => {
-    const fullName = (event.target as HTMLElement).closest<HTMLElement>('[data-github-repository]')?.dataset.githubRepository;
+    event.preventDefault();
+    event.stopPropagation();
+    const row = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-github-repository]');
+    const fullName = row?.dataset.githubRepository;
     if (!fullName) return;
+    if (row?.dataset.githubOpening === 'true') return;
     const repository = githubRepositories.find((candidate) => candidate.fullName === fullName);
     if (!repository) return;
-    void openOrCloneGithubRepository(repository, true).catch((error) => {
-      showToast(t('toast.openRepoFail', { name: repository.fullName, error: String(error) }), true);
-    });
+    if (row) {
+      row.dataset.githubOpening = 'true';
+      row.disabled = true;
+      row.classList.add('is-selected', 'is-opening');
+      row.setAttribute('aria-selected', 'true');
+      const status = row.querySelector<HTMLElement>('.github-repository-meta i');
+      if (status) status.textContent = 'OPENING…';
+    }
+    const updateRowStatus = (value: string): void => {
+      const status = row?.querySelector<HTMLElement>('.github-repository-meta i');
+      if (status) status.textContent = value;
+    };
+    void withTimeout(
+      openOrCloneGithubRepository(repository, true, updateRowStatus),
+      REPOSITORY_OPEN_TIMEOUT_MS,
+      'Opening this repository timed out. Check your network or GitHub connection and try again.',
+    )
+      .catch((error) => {
+        showToast(t('toast.openRepoFail', { name: repository.fullName, error: String(error) }), true);
+      })
+      .finally(() => {
+        if (!row?.isConnected) return;
+        row.disabled = false;
+        delete row.dataset.githubOpening;
+        row.classList.remove('is-opening');
+        row.setAttribute('aria-selected', 'true');
+      });
   });
   void loadGithubRepositories();
   document.querySelector<HTMLButtonElement>('#main-menu-signin')?.addEventListener('click', () => { void openAccountsModal(); });
@@ -10747,6 +10990,30 @@ async function openSearchModal(): Promise<void> {
   document.querySelector<HTMLInputElement>('#search-query')!.focus();
 }
 
+function bindMainMenuWindowControls(): void {
+  const currentWindow = getCurrentWindow();
+  const safe = (label: string, action: () => Promise<void>): void => {
+    void action().catch((error: unknown) => showToast(`${label}: ${String(error)}`, true));
+  };
+  const panel = document.querySelector<HTMLElement>('.main-menu-panel');
+  const dragRegion = document.querySelector<HTMLElement>('.main-menu-topline');
+  if (!panel || !dragRegion) return;
+
+  document.querySelector<HTMLButtonElement>('#main-menu-minimize')?.addEventListener('click', () => {
+    safe('Could not minimize', () => currentWindow.minimize());
+  });
+  document.querySelector<HTMLButtonElement>('#main-menu-close')?.addEventListener('click', () => {
+    safe('Could not close', () => currentWindow.close());
+  });
+
+  // The app uses a borderless native window. Keep the whole menu header as a
+  // drag region, while leaving the controls and other interactive elements clickable.
+  dragRegion.addEventListener('mousedown', (event) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button,input,a,select,textarea')) return;
+    safe('Could not move the window', () => currentWindow.startDragging());
+  });
+}
+
 function bindWindowControls(): void {
   const currentWindow = getCurrentWindow();
   const safe = (label: string, action: () => Promise<void>): void => { void action().catch((error: unknown) => showToast(`${label}: ${String(error)}`, true)); };
@@ -10937,6 +11204,9 @@ function bindInteractions(): void {
     resizeNativeAgentInput();
     refreshSlashCommandMenu('a');
     renderComposerUsage();
+  });
+  nativeAgentInput.addEventListener('paste', (event) => {
+    void handleComposerPaste(event, nativeAgentInput);
   });
   nativeAgentProvider.addEventListener('change', () => {
     syncComposerPlaceholder();
@@ -11411,6 +11681,14 @@ function bindInteractions(): void {
     if (remove == null) return;
     designPicks.splice(Number(remove), 1);
     renderDesignToolbar();
+  });
+  document.querySelector<HTMLElement>('#composer-captures')?.addEventListener('dblclick', (event) => {
+    const sourceId = (event.target as HTMLElement).closest<HTMLElement>('[data-image-source]')?.dataset.imageSource;
+    if (sourceId) openRegisteredImage(sourceId);
+  });
+  nativeAgentLog.addEventListener('dblclick', (event) => {
+    const sourceId = (event.target as HTMLElement).closest<HTMLElement>('[data-image-source]')?.dataset.imageSource;
+    if (sourceId) openRegisteredImage(sourceId);
   });
   document.querySelector<HTMLButtonElement>('#design-clear')?.addEventListener('click', () => {
     designPicks = [];

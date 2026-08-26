@@ -2,7 +2,9 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use serde::Serialize;
@@ -12,6 +14,8 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+const GIT_CLONE_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,6 +158,41 @@ fn configure_command(command: &mut Command) {
     }
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
+}
+
+fn clone_output_with_timeout(mut command: Command) -> Result<Output, String> {
+    let mut child = command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("No se pudo iniciar Git clone: {error}"))?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Ok(Output {
+                    status,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                });
+            }
+            Ok(None) if started.elapsed() >= GIT_CLONE_TIMEOUT => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(
+                    "Git clone tardo mas de 90 segundos y se detuvo. Comprueba la red e intentalo de nuevo."
+                        .to_string(),
+                );
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("No se pudo comprobar el estado de Git clone: {error}"));
+            }
+        }
+    }
 }
 
 fn git_command() -> Result<Command, String> {
@@ -1305,7 +1344,7 @@ pub fn clone_repository(url: String, destination: String) -> Result<String, Stri
         return Err("Usa una URL Git https, http, ssh o git@ valida.".to_string());
     }
 
-    let target = PathBuf::from(destination.trim().trim_matches('"'));
+    let target = crate::clean_windows_path(PathBuf::from(destination.trim().trim_matches('"')));
     if target.as_os_str().is_empty() {
         return Err("El destino del clone es obligatorio.".to_string());
     }
@@ -1327,9 +1366,7 @@ pub fn clone_repository(url: String, destination: String) -> Result<String, Stri
 
     let mut command = git_command()?;
     command.arg("clone").arg(url).arg(&target);
-    let output = command
-        .output()
-        .map_err(|error| format!("No se pudo iniciar Git clone: {error}"))?;
+    let output = clone_output_with_timeout(command)?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if detail.is_empty() {
