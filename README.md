@@ -1,33 +1,35 @@
 # ComesADE
 
-ComesADE es un ADE de escritorio y una Agent Super App (ASA) para trabajar con proyectos locales, shells nativos, agentes CLI, Git, worktrees y previews reales en Windows y macOS.
+ComesADE is a desktop ADE and an Agent Super App (ASA) for working with local projects, native shells, CLI agents, Git, worktrees, and real previews on Windows and macOS.
 
-## Ubicación
+## Location
 
-El proyecto está en `C:\Users\ianda\Documents\ComesADE`, fuera de OneDrive.
+The project is located at `C:\Users\administrator\Documents\ComesADE`, outside of OneDrive.
 
-## Desarrollo
+## Development
 
 ```powershell
 npm install
 npm start
 ```
 
-`npm start` deja Vite y Tauri en segundo plano y abre la ventana de ComesADE. Para ver la compilación en primer plano: `node scripts/tauri.mjs dev --foreground`.
+`npm start` runs Vite and Tauri in the background and opens the ComesADE window. To run the build process in the foreground, use:
 
-## GitHub requerido
+```powershell
+node scripts/tauri.mjs dev --foreground
+```
 
-ComesADE requiere una cuenta de GitHub conectada antes de abrir el escritorio.
-La app usa OAuth real de GitHub con Device Flow. Cada usuario autoriza su propia
-cuenta y la credencial queda en el almacen seguro del sistema, no en la app ni
-en GitHub CLI. Configura el Client ID publico de una GitHub App con
-`VITE_GITHUB_CLIENT_ID` antes de compilar. La app debe tener habilitado Device
-Flow y permisos de Metadata y Contents para consultar y clonar repositorios.
-Desde `Clone repository`, ComesADE consulta los repositorios accesibles de la
-cuenta mediante la API real de GitHub y clona el repositorio seleccionado usando
-la credencial del usuario.
+## GitHub Required
 
-## Verificaciones
+ComesADE requires a connected GitHub account before the desktop application can be opened.
+
+The app uses GitHub's real OAuth Device Flow. Each user authorizes their own account, and the credential is stored securely in the operating system's credential store rather than inside the app or GitHub CLI.
+
+Before building, configure the public Client ID of a GitHub App using `VITE_GITHUB_CLIENT_ID`. The GitHub App must have Device Flow enabled, along with Metadata and Contents permissions so that ComesADE can view and clone repositories.
+
+From `Clone repository`, ComesADE retrieves the repositories accessible to the authenticated account using the real GitHub API and clones the selected repository using the user's credential.
+
+## Verification
 
 ```powershell
 npm run build
@@ -35,71 +37,90 @@ cargo check --release --manifest-path src-tauri/Cargo.toml
 cargo test --offline --manifest-path src-tauri/Cargo.toml
 ```
 
-Las pruebas nativas abren el shell predeterminado dentro de un PTY, verifican salida real y ejercitan Git/worktrees y filesystem.
+The native tests open the system's default shell inside a PTY, verify real command output, and test Git/worktree and filesystem functionality.
 
-La metadata de la aplicación (workspaces, notas, sesiones restaurables,
-layout y configuración) se guarda localmente en SQLite dentro de AppData.
-Los repositorios y archivos siguen siendo los reales del disco; no se copian
-al almacenamiento de la aplicación.
+Application metadata, including workspaces, notes, restorable sessions, layout, and configuration, is stored locally in SQLite inside AppData.
 
-La app también verifica el Worker remoto de ComesADE al iniciar y luego cada
-60 segundos contra `GET /health` y `GET /v1` en
-`https://comesade-api.kingfrianfrian16.workers.dev`. Esa conexión es solo de
-salud/ready; workspaces y notas siguen siendo locales.
+Repositories and files remain in their actual locations on disk and are not copied into the application's storage.
 
-## Empaquetado
+The app also checks the remote ComesADE Worker when it starts and every 60 seconds afterward using `GET /health` and `GET /v1` at:
+
+`https://comesade-api.kingfrianfrian16.workers.dev`
+
+This connection is used only for health and readiness checks. Workspaces and notes remain stored locally.
+
+## Packaging
 
 ```powershell
 npm run tauri build
 ```
 
-Ese comando sirve para validar el empaquetado local. No distribuyas esos
-artefactos sin firma. Para una versión pública de Windows usa:
+This command is intended for validating the local packaging process. Do not distribute these artifacts unless they are signed.
+
+For a public Windows release, use:
 
 ```powershell
 npm run build:windows:signed
 ```
 
-Artefactos generados:
+Generated artifacts:
 
-- `src-tauri\target\release\comesade.exe`
-- `src-tauri\target\release\bundle\nsis\ComesADE_1.0.0_x64-setup.exe`
+* `src-tauri\target\release\comesade.exe`
+* `src-tauri\target\release\bundle\nsis\ComesADE_1.0.0_x64-setup.exe`
 
-En macOS el paquete distribuible es un `.app` (zippeado):
+On macOS, the distributable package is a zipped `.app`:
 
 ```bash
 npm run release:macos
 ```
 
-- `releases/ComesADE-arm64.app.zip`
-- `releases/ComesADE-x64.app.zip`
+Generated artifacts:
 
-Ese build debe ejecutarse en un Mac (o en GitHub Actions). Desde Windows no se
-genera el `.app`. El instalador de Windows sigue siendo `ComesADE-Setup.exe`.
+* `releases/ComesADE-arm64.app.zip`
+* `releases/ComesADE-x64.app.zip`
 
-Para preparar una versión distribuible y firmada, consulta
-[`docs/RELEASING.md`](docs/RELEASING.md). Nunca guardes certificados,
-contraseñas ni claves privadas dentro del proyecto.
+This build must be performed on a Mac or through GitHub Actions. A macOS `.app` cannot be generated from Windows.
 
-Para un artefacto firmado usa \`npm run release:desktop:signed\` con un
-certificado Authenticode real configurado. El flujo local no intenta evadir
-SmartScreen ni modificar permisos de Windows.
+The Windows installer remains:
 
-## Launcher estable en el Escritorio
+`ComesADE-Setup.exe`
 
-Para actualizar la aplicación sin crear otra copia, usa el flujo de release:
+For instructions on preparing a signed, distributable release, see [`docs/RELEASING.md`](docs/RELEASING.md).
+
+Never store certificates, passwords, or private keys inside the project.
+
+To create a signed artifact, use:
+
+```powershell
+npm run release:desktop:signed
+```
+
+with a properly configured Authenticode certificate.
+
+The local release workflow does not attempt to bypass SmartScreen or modify Windows security permissions.
+
+## Stable Desktop Launcher
+
+To update the application without creating another copy, use the release workflow:
 
 ```powershell
 npm run release:desktop
 ```
 
-Ese flujo siempre publica el mismo launcher en el Escritorio:
-`ComesADE.exe`. El instalador estable queda en
-`Documents\ComesADE\releases\ComesADE-Setup.exe`.
-El instalador usa el mismo identificador y la misma instalación por usuario, por lo que una actualización reemplaza ComesADE en su lugar.
-Si ComesADE está abierto, el script se detiene y pide cerrarlo; no crea un segundo launcher con otro nombre.
+This workflow always publishes the same launcher to the Desktop:
 
-Cada sesión abre el shell nativo seleccionado por el usuario dentro de un
-PTY visible. En Windows se detecta PowerShell/cmd y en macOS se detecta el
-shell configurado por el sistema. Las políticas de ejecución del sistema se
-respetan; la aplicación no desactiva Defender, SmartScreen ni PowerShell.
+`ComesADE.exe`
+
+The stable installer is stored at:
+
+`Documents\ComesADE\releases\ComesADE-Setup.exe`
+
+The installer uses the same application identifier and the same per-user installation location, so updates replace the existing ComesADE installation in place.
+
+If ComesADE is currently running, the script stops and asks the user to close it. It does not create a second launcher with a different name.
+
+Each session opens the user's selected native shell inside a visible PTY.
+
+On Windows, ComesADE detects PowerShell and Command Prompt. On macOS, it detects the shell configured by the operating system.
+
+System execution policies are respected. ComesADE does not disable Defender, SmartScreen, or PowerShell security policies.
