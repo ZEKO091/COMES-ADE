@@ -379,6 +379,7 @@ fn parse_responses_stream(body: &str) -> Result<Value, String> {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut failure = None;
+    let mut usage = None;
     for line in body.lines() {
         let Some(payload) = line.strip_prefix("data:") else {
             continue;
@@ -391,6 +392,9 @@ fn parse_responses_stream(body: &str) -> Result<Value, String> {
             continue;
         };
         match event.get("type").and_then(Value::as_str).unwrap_or_default() {
+            "response.completed" => {
+                usage = event.pointer("/response/usage").cloned().or_else(|| event.get("usage").cloned());
+            }
             "response.output_text.delta" => {
                 if let Some(delta) = event.get("delta").and_then(Value::as_str) {
                     text.push_str(delta);
@@ -439,7 +443,11 @@ fn parse_responses_stream(body: &str) -> Result<Value, String> {
     if !tool_calls.is_empty() {
         message["tool_calls"] = Value::Array(tool_calls);
     }
-    Ok(json!({ "choices": [{ "message": message }] }))
+    let mut response = json!({ "choices": [{ "message": message }] });
+    if let Some(usage) = usage {
+        response["usage"] = usage;
+    }
+    Ok(response)
 }
 
 /// Modelos que Codex acepta con sesion de ChatGPT (no IDs de la API de pago).

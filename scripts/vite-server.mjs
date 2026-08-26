@@ -30,7 +30,10 @@ function portOpen() {
 async function viteReady() {
   try {
     const response = await fetch(VITE_ORIGIN, { redirect: 'manual' });
-    return response.status < 500;
+    if (response.status !== 200) return false;
+    const body = await response.text();
+    // Do not treat an unrelated HTTP service on port 1420 as Vite.
+    return body.includes('/@vite/client') && body.includes('/src/main.ts');
   } catch {
     return false;
   }

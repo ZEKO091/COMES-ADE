@@ -94,9 +94,13 @@ for (const signaturePath of walk(inputDirectory).filter((path) => path.endsWith(
   if (!statSync(bundlePath, { throwIfNoEntry: false })?.isFile()) continue;
   const detected = detectCandidate(signaturePath, bundlePath);
   if (!detected) continue;
+  const signature = readFileSync(signaturePath, 'utf8').trim();
+  if (!signature) {
+    throw new Error('La firma del updater está vacía: ' + signaturePath);
+  }
   candidates.push({
     ...detected,
-    signature: readFileSync(signaturePath, 'utf8').trim(),
+    signature,
     filename: basename(bundlePath),
   });
 }

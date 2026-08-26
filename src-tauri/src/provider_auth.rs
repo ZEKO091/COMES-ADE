@@ -79,11 +79,12 @@ fn chunk_count(value: &str) -> Option<usize> {
 fn clear_chunks(provider: ProviderId) {
     for index in 0..KEYRING_MAX_CHUNKS {
         let Ok(entry) = keyring_chunk_entry(provider, index) else {
-            return;
+            continue;
         };
         match entry.delete_credential() {
             Ok(()) => {}
-            Err(_) => return,
+            Err(KeyringError::NoEntry) => {}
+            Err(_) => {}
         }
     }
 }
@@ -133,8 +134,6 @@ fn save_credentials(provider: ProviderId, credentials: &StoredProviderCredential
     let entry = keyring_entry(provider)?;
     let value = serde_json::to_string(credentials)
         .map_err(|error| format!("No se pudo serializar la cuenta: {error}"))?;
-    clear_chunks(provider);
-
     let chunks: Vec<String> = if value.chars().count() <= KEYRING_CHUNK_CHARS {
         Vec::new()
     } else {
@@ -146,20 +145,28 @@ fn save_credentials(provider: ProviderId, credentials: &StoredProviderCredential
             .collect()
     };
 
-    if chunks.is_empty() {
-        return entry.set_password(&value).map_err(|error| {
-            format!(
-                "No se pudo guardar {} en el almacen seguro: {error}",
-                provider.display_name()
-            )
-        });
-    }
     if chunks.len() > KEYRING_MAX_CHUNKS {
         return Err(format!(
             "La credencial de {} es demasiado grande para el almacen seguro.",
             provider.display_name()
         ));
     }
+
+    if chunks.is_empty() {
+        entry.set_password(&value).map_err(|error| {
+            format!(
+                "No se pudo guardar {} en el almacen seguro: {error}",
+                provider.display_name()
+            )
+        })?;
+        clear_chunks(provider);
+        return Ok(());
+    }
+
+    // La nueva credencial ya pasó el límite de tamaño. El manifiesto se
+    // actualiza al final para que la lectura use exactamente el número de
+    // partes recién escrito.
+    clear_chunks(provider);
     for (index, chunk) in chunks.iter().enumerate() {
         keyring_chunk_entry(provider, index)?
             .set_password(chunk)
@@ -758,7 +765,29 @@ pub struct AgentChatRequest {
     pub messages: Vec<AgentUiMessage>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    #[serde(default)]
+    pub permission_mode: AgentPermissionMode,
     pub request_id: Option<String>,
+}
+
+/// Alcance real de las herramientas locales que puede invocar el agente.
+///
+/// `Full` conserva el comportamiento anterior para solicitudes antiguas que no
+/// incluyan el campo. Las demás opciones se aplican dentro del runtime nativo.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentPermissionMode {
+    ReadOnly,
+    #[serde(alias = "workspace")]
+    Approve,
+    Ask,
+    Full,
+}
+
+impl Default for AgentPermissionMode {
+    fn default() -> Self {
+        Self::Full
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -81,7 +81,7 @@ fn parse_callback(request_line: &str, expected_state: &str) -> Result<String, St
         return Err(format!("Claude rechazo el acceso: {error}"));
     }
     if let Some(code) = code.filter(|value| !value.is_empty()) {
-        if state.as_deref().is_some_and(|value| value != expected_state) {
+        if state.as_deref() != Some(expected_state) {
             return Err("El callback de Claude no coincide con el estado OAuth.".into());
         }
         return Ok(code);

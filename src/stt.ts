@@ -13,22 +13,40 @@ let transcribing = false;
 let stopTimer: number | null = null;
 let meterContext: AudioContext | null = null;
 let meterRaf = 0;
+let meterGeneration = 0;
+let starting = false;
+let stopping = false;
+
+function readStoredValue(key: string): string {
+  try {
+    return window.localStorage.getItem(key)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredValue(key: string, value: string): void {
+  try {
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable in restricted WebViews.
+  }
+}
 
 function preferredLanguage(): string {
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = readStoredValue(STORAGE_KEY);
   if (stored && STT_LANGUAGES.some((item) => item.id === stored)) return stored;
   const nav = (navigator.language || 'es').slice(0, 2).toLowerCase();
   return STT_LANGUAGES.some((item) => item.id === nav) ? nav : 'es';
 }
 
 export function getSelectedMicrophoneId(): string {
-  return window.localStorage.getItem(MIC_STORAGE_KEY)?.trim() ?? '';
+  return readStoredValue(MIC_STORAGE_KEY);
 }
 
 export function setSelectedMicrophoneId(id: string): void {
-  const value = id.trim();
-  if (value) window.localStorage.setItem(MIC_STORAGE_KEY, value);
-  else window.localStorage.removeItem(MIC_STORAGE_KEY);
+  writeStoredValue(MIC_STORAGE_KEY, id.trim());
 }
 
 export type MicrophoneOption = { id: string; label: string };
@@ -43,7 +61,12 @@ export async function listMicrophones(): Promise<MicrophoneOption[]> {
     }))
     .filter((device) => device.id);
 
-  let devices = await navigator.mediaDevices.enumerateDevices();
+  let devices: MediaDeviceInfo[];
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices();
+  } catch {
+    return [];
+  }
   const unlabeled = devices.some((device) => device.kind === 'audioinput' && !device.label);
   if (unlabeled && navigator.mediaDevices.getUserMedia) {
     try {
@@ -80,10 +103,12 @@ function appendTranscript(input: HTMLTextAreaElement, text: string, resize: () =
 
 function mimeType(): string {
   const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return '';
   return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
 }
 
 function stopListeningMeter(): void {
+  meterGeneration += 1;
   if (meterRaf) {
     window.cancelAnimationFrame(meterRaf);
     meterRaf = 0;
@@ -100,16 +125,33 @@ function startListeningMeter(media: MediaStream, barsHost: HTMLElement | null): 
   if (!bars.length) return;
   const AudioCtx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AudioCtx) return;
-  const context = new AudioCtx();
-  meterContext = context;
-  const source = context.createMediaStreamSource(media);
-  const analyser = context.createAnalyser();
-  analyser.fftSize = 64;
-  analyser.smoothingTimeConstant = 0.55;
-  source.connect(analyser);
-  const samples = new Uint8Array(analyser.frequencyBinCount);
+  let context: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  try {
+    context = new AudioCtx();
+    const source = context.createMediaStreamSource(media);
+    analyser = context.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.55;
+    source.connect(analyser);
+  } catch {
+    if (context) void context.close().catch(() => undefined);
+    return;
+  }
+  if (!context || !analyser) return;
+  const audioContext = context;
+  const audioAnalyser = analyser;
+  meterContext = audioContext;
+  const generation = meterGeneration;
+  const samples = new Uint8Array(audioAnalyser.frequencyBinCount);
   const tick = (): void => {
-    analyser.getByteFrequencyData(samples);
+    if (meterGeneration !== generation || meterContext !== audioContext) return;
+    try {
+      audioAnalyser.getByteFrequencyData(samples);
+    } catch {
+      stopListeningMeter();
+      return;
+    }
     const count = bars.length;
     for (let index = 0; index < count; index += 1) {
       const sampleIndex = Math.floor((index / count) * samples.length);
@@ -118,7 +160,9 @@ function startListeningMeter(media: MediaStream, barsHost: HTMLElement | null): 
     }
     meterRaf = window.requestAnimationFrame(tick);
   };
-  void context.resume().then(tick).catch(() => undefined);
+  void audioContext.resume().then(() => {
+    if (meterGeneration === generation && meterContext === audioContext) tick();
+  }).catch(() => undefined);
 }
 
 export function bindComposerSpeech(options: {
@@ -133,10 +177,10 @@ export function bindComposerSpeech(options: {
   listeningBars?: HTMLElement | null;
 }): void {
   const { input, mic, lang, resize, toast, canStart, transcribe, listening, listeningBars } = options;
-  lang.innerHTML = STT_LANGUAGES.map((item) => `<option value="${item.id}">${item.label}</option>`).join('');
+  lang.innerHTML = STT_LANGUAGES.map((item) => `<option value="${item.id}">${item.id === 'auto' ? t('lang.autoShort') : item.label}</option>`).join('');
   lang.value = preferredLanguage();
   lang.addEventListener('change', () => {
-    window.localStorage.setItem(STORAGE_KEY, lang.value);
+    writeStoredValue(STORAGE_KEY, lang.value);
   });
 
   const setListening = (active: boolean): void => {
@@ -166,13 +210,15 @@ export function bindComposerSpeech(options: {
     recorder = null;
     chunks = [];
     recording = false;
+    stopping = false;
     mic.classList.remove('is-recording');
     mic.setAttribute('aria-pressed', 'false');
     mic.title = t('chrome.dictationTitle');
   };
 
   const finish = async (): Promise<void> => {
-    const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
+    const currentRecorder = recorder;
+    const blob = new Blob(chunks, { type: currentRecorder?.mimeType || 'audio/webm' });
     stopTracks();
     if (blob.size < 800) {
       toast(t('toast.noAudio'), true);
@@ -184,13 +230,15 @@ export function bindComposerSpeech(options: {
     toast(t('toast.transcribing'));
     try {
       const text = await transcribe(blob, lang.value);
-      if (!text) {
+      const transcript = text.trim();
+      if (!transcript) {
         toast(t('toast.noSpeech'), true);
         return;
       }
-      appendTranscript(input, text, resize);
+      appendTranscript(input, transcript, resize);
     } catch (error) {
-      toast(String(error).replace(/^Error:\s*/, ''), true);
+      const detail = String(error).replace(/^Error:\s*/, '').trim() || t('common.error');
+      toast(t('toast.sttFail', { error: detail }), true);
     } finally {
       transcribing = false;
       mic.disabled = false;
@@ -201,13 +249,14 @@ export function bindComposerSpeech(options: {
   mic.addEventListener('click', async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (transcribing) return;
+    if (transcribing || starting || stopping) return;
     const blocked = canStart?.();
     if (blocked) {
       toast(blocked, true);
       return;
     }
     if (recording && recorder && recorder.state !== 'inactive') {
+      stopping = true;
       recorder.stop();
       return;
     }
@@ -215,6 +264,11 @@ export function bindComposerSpeech(options: {
       toast(t('toast.micWebview'), true);
       return;
     }
+    if (typeof MediaRecorder === 'undefined') {
+      toast(t('toast.micWebview'), true);
+      return;
+    }
+    starting = true;
     try {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: microphoneConstraints() });
@@ -234,6 +288,7 @@ export function bindComposerSpeech(options: {
         if (dataEvent.data.size) chunks.push(dataEvent.data);
       };
       recorder.onerror = () => {
+        if (recorder) recorder.onstop = null;
         toast(t('toast.micRecordFail'), true);
         stopTracks();
       };
@@ -248,11 +303,16 @@ export function bindComposerSpeech(options: {
       setListening(true);
       startListeningMeter(stream, listeningBars ?? null);
       stopTimer = window.setTimeout(() => {
-        if (recorder && recorder.state !== 'inactive') recorder.stop();
+        if (recorder && recorder.state !== 'inactive') {
+          stopping = true;
+          recorder.stop();
+        }
       }, MAX_RECORD_MS);
     } catch (error) {
       stopTracks();
       toast(t('toast.micFail', { error: String(error) }), true);
+    } finally {
+      starting = false;
     }
   });
 }

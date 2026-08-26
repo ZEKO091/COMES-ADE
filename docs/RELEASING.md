@@ -79,16 +79,23 @@ npm run release:macos:signed
 Sin notarización (solo build + .app local para pruebas):
 
 ```bash
-npm run release:macos
+npm run package:macos
 ```
+
+El flujo local usa una identidad ad-hoc (`-`) para evitar el error de app
+dañada durante las pruebas. No es una firma Apple Developer ni una
+notarización; macOS puede pedir aprobarla una vez desde Finder o Ajustes.
 
 Artefactos estables en `releases/`:
 
 - Windows: `ComesADE-Setup.exe`
 - Mac Apple Silicon: `ComesADE-arm64.app.zip` (contiene `ComesADE.app`)
 - Mac Intel: `ComesADE-x64.app.zip` (contiene `ComesADE.app`)
+- Mac Apple Silicon: `ComesADE-arm64.dmg`
+- Mac Intel: `ComesADE-x64.dmg`
 
-En CI, el workflow `Signed desktop builds` genera el `.exe` y los `.app.zip`
+En CI, el workflow `Signed desktop builds` genera el `.exe`, los `.app.zip` y
+los `.dmg`
 al publicar un tag `v*` y los sube a GitHub Releases junto a `latest.json`.
 `APPLE_CERTIFICATE` debe contener el `.p12` en Base64 y
 `APPLE_CERTIFICATE_PASSWORD` su contraseña solo si usas el flujo

@@ -27,11 +27,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri macOS (.app)
-        # Local config skips updater signatures (no TAURI_SIGNING_PRIVATE_KEY needed).
-        run: npm run tauri build -- --config src-tauri/tauri.local.conf.json --bundles app
+      - name: Build Tauri macOS (.app + .dmg)
+        # Local config skips updater signatures and uses ad-hoc macOS signing.
+        run: npm run tauri build -- --config src-tauri/tauri.local.conf.json --bundles app,dmg
 
-      - name: Package ComesADE.app.zip
+      - name: Package ComesADE.app.zip and ComesADE.dmg
         run: |
           set -euo pipefail
           app_path="$(find src-tauri/target -type d -name 'ComesADE.app' | head -n 1)"
@@ -40,9 +40,22 @@ jobs:
             find src-tauri/target -type d -name '*.app' -print || true
             exit 1
           fi
+          dmg_path="$(find src-tauri/target -type f -name '*.dmg' | head -n 1)"
+          if [[ -z "$dmg_path" ]]; then
+            echo "No se encontrÃ³ el .dmg generado"
+            find src-tauri/target -type f -name '*.dmg' -print || true
+            exit 1
+          fi
+          case "$(uname -m)" in
+            arm64|aarch64) suffix="arm64" ;;
+            x86_64|amd64) suffix="x64" ;;
+            *) echo "Arquitectura macOS no soportada: $(uname -m)"; exit 1 ;;
+          esac
           mkdir -p dist-macos
-          ditto -c -k --sequesterRsrc --keepParent "$app_path" dist-macos/ComesADE.app.zip
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "dist-macos/ComesADE-${suffix}.app.zip"
+          cp "$dmg_path" "dist-macos/ComesADE-${suffix}.dmg"
           echo "Packaged from: $app_path"
+          echo "DMG from: $dmg_path"
           ls -la dist-macos
 
       - name: Upload macOS build
@@ -50,7 +63,7 @@ jobs:
         with:
           name: macOS-build
           path: |
-            dist-macos/ComesADE.app.zip
+            dist-macos/**
             src-tauri/target/release/bundle/macos/**
             src-tauri/target/*/release/bundle/macos/**
           if-no-files-found: error

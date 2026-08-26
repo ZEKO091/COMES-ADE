@@ -97,12 +97,12 @@ jobs:
             ${{ runner.temp }}/release-assets/**
 
   macos:
-    name: macOS updater bundle (${{ matrix.target }})
+    name: macOS app, DMG and updater bundle (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
           - runner: macos-14
             target: aarch64-apple-darwin
@@ -161,11 +161,13 @@ jobs:
             cp "$file" "$staging/$name"
           done < <(find src-tauri/target -type f \( -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) -print0)
 
-          # Zip the .app for GitHub Releases (users download .app.zip, not .dmg).
+          # Publish both the portable .app zip and the Finder installer .dmg.
           if [[ "$TAURI_TARGET" == "aarch64-apple-darwin" ]]; then
-            stable="ComesADE-arm64.app.zip"
+            app_stable="ComesADE-arm64.app.zip"
+            dmg_stable="ComesADE-arm64.dmg"
           elif [[ "$TAURI_TARGET" == "x86_64-apple-darwin" ]]; then
-            stable="ComesADE-x64.app.zip"
+            app_stable="ComesADE-x64.app.zip"
+            dmg_stable="ComesADE-x64.dmg"
           else
             echo "TAURI_TARGET no soportado para alias estable: $TAURI_TARGET" >&2
             exit 1
@@ -177,7 +179,14 @@ jobs:
             find src-tauri/target -type d -name '*.app' -print || true
             exit 1
           fi
-          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$staging/$stable"
+          dmg_path="$(find src-tauri/target -type f -name '*.dmg' | head -n 1)"
+          if [[ -z "$dmg_path" ]]; then
+            echo "No se encontrÃ³ el .dmg generado." >&2
+            find src-tauri/target -type f -name '*.dmg' -print || true
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$staging/$app_stable"
+          cp "$dmg_path" "$staging/$dmg_stable"
 
           test -n "$(find "$staging" -type f -print -quit)"
           ls -la "$staging"
@@ -225,11 +234,42 @@ jobs:
                 ;;
             esac
           done < <(find release-artifacts -type f -name 'ComesADE-*.app.zip' -print0)
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            case "$name" in
+              ComesADE-arm64.dmg|ComesADE-x64.dmg)
+                cp -f "$file" "release-artifacts/macos-apps/$name"
+                ;;
+            esac
+          done < <(find release-artifacts -type f -name 'ComesADE-*.dmg' -print0)
           if ! find release-artifacts/macos-apps -type f -name 'ComesADE-*.app.zip' | grep -q .; then
             echo "Faltan apps Mac estables (ComesADE-arm64.app.zip / ComesADE-x64.app.zip)." >&2
             find release-artifacts -type f \( -name '*.app.zip' -o -name '*.app.tar.gz' \) -print || true
             exit 1
           fi
+          if ! find release-artifacts/macos-apps -type f -name 'ComesADE-*.dmg' | grep -q .; then
+            echo "Faltan instaladores Mac DMG (ComesADE-arm64.dmg / ComesADE-x64.dmg)." >&2
+            find release-artifacts -type f -name '*.dmg' -print || true
+            exit 1
+          fi
+          for asset in \
+            ComesADE-arm64.app.zip \
+            ComesADE-x64.app.zip \
+            ComesADE-arm64.dmg \
+            ComesADE-x64.dmg
+          do
+            if [[ ! -f "release-artifacts/macos-apps/$asset" ]]; then
+              echo "Falta asset Mac obligatorio: $asset" >&2
+              exit 1
+            fi
+          done
+
+          # Each matrix artifact contains a copy of its stable installer. Keep
+          # only the normalized copies to avoid duplicate GitHub Release names.
+          find release-artifacts -mindepth 2 -type f \
+            \( -name 'ComesADE-arm64.app.zip' -o -name 'ComesADE-x64.app.zip' \
+            -o -name 'ComesADE-arm64.dmg' -o -name 'ComesADE-x64.dmg' \) \
+            ! -path 'release-artifacts/macos-apps/*' -delete
           ls -la release-artifacts/macos-apps
 
       - name: Create or update GitHub Release

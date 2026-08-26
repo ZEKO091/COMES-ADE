@@ -4,7 +4,7 @@ ComesADE is a desktop ADE and an Agent Super App (ASA) for working with local pr
 
 ## Location
 
-The project is located at `C:\Users\administrator\Documents\ComesADE`, outside of OneDrive.
+The project is located at `C:\Users\ianda\COMES-ADE`, outside of OneDrive.
 
 ## Development
 
@@ -66,24 +66,24 @@ npm run build:windows:signed
 Generated artifacts:
 
 * `src-tauri\target\release\comesade.exe`
-* `src-tauri\target\release\bundle\nsis\ComesADE_1.0.0_x64-setup.exe`
+* `src-tauri\target\release\bundle\nsis\ComesADE_1.0.2_x64-setup.exe`
 
-On macOS, the distributable package is a zipped `.app`:
+On macOS, the local test package generates the `.app` and `.dmg` without an Apple certificate or updater key:
 
 ```bash
-npm run release:macos
+npm run package:macos
 ```
 
 Generated artifacts:
 
 * `releases/ComesADE-arm64.app.zip`
 * `releases/ComesADE-x64.app.zip`
+* `releases/ComesADE-arm64.dmg`
+* `releases/ComesADE-x64.dmg`
 
-This build must be performed on a Mac or through GitHub Actions. A macOS `.app` cannot be generated from Windows.
+This build uses ad-hoc signing for local testing. macOS may ask for approval in Finder or System Settings the first time. For updater releases, use the GitHub Actions workflow. A macOS `.app` cannot be generated from Windows.
 
-The Windows installer remains:
-
-`ComesADE-Setup.exe`
+The Windows installer remains `ComesADE-Setup.exe`.
 
 For instructions on preparing a signed, distributable release, see [`docs/RELEASING.md`](docs/RELEASING.md).
 
@@ -107,20 +107,14 @@ To update the application without creating another copy, use the release workflo
 npm run release:desktop
 ```
 
-This workflow always publishes the same launcher to the Desktop:
+This workflow always publishes the same launcher to the Desktop: `ComesADE.exe`.
 
-`ComesADE.exe`
-
-The stable installer is stored at:
-
-`Documents\ComesADE\releases\ComesADE-Setup.exe`
+The stable installer is stored at `C:\Users\ianda\COMES-ADE\releases\ComesADE-Setup.exe`.
 
 The installer uses the same application identifier and the same per-user installation location, so updates replace the existing ComesADE installation in place.
 
 If ComesADE is currently running, the script stops and asks the user to close it. It does not create a second launcher with a different name.
 
-Each session opens the user's selected native shell inside a visible PTY.
-
-On Windows, ComesADE detects PowerShell and Command Prompt. On macOS, it detects the shell configured by the operating system.
+Each session opens the user's selected native shell inside a visible PTY. On Windows, ComesADE detects PowerShell and Command Prompt. On macOS, it detects the shell configured by the operating system.
 
 System execution policies are respected. ComesADE does not disable Defender, SmartScreen, or PowerShell security policies.

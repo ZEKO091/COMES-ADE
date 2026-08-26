@@ -1079,7 +1079,11 @@ pub fn file_versions(
         if output.status.success() {
             String::from_utf8_lossy(&output.stdout).into_owned()
         } else {
-            read_worktree_file(&root, &relative)?
+            // The index is authoritative for a staged diff. A staged
+            // deletion (or an untracked path) has no index blob and must be
+            // represented as empty, rather than falling back to the working
+            // tree content.
+            String::new()
         }
     } else {
         read_worktree_file(&root, &relative)?

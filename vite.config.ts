@@ -19,5 +19,7 @@ export default defineConfig({
       ignored: ['**/src-tauri/target/**'],
     },
   },
-  envPrefix: ['VITE_', 'TAURI_'],
+  // Only public Vite configuration belongs in the renderer bundle. In
+  // particular, never expose TAURI_SIGNING_PRIVATE_KEY from CI to the app.
+  envPrefix: 'VITE_',
 });

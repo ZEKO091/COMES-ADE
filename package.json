@@ -1,6 +1,6 @@
 {
   "name": "comesade",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,6 +19,7 @@
     "build:windows:updater": "powershell.exe -NoProfile -NonInteractive -File scripts/build-windows-updater.ps1",
     "build:macos:signed": "bash scripts/build-macos-signed.sh",
     "build:macos:updater": "bash scripts/build-macos-updater.sh",
+    "build:macos:local": "bash scripts/build-macos-local.sh",
     "publish:macos": "bash scripts/publish-macos.sh",
     "release:macos": "npm run build:macos:updater && npm run publish:macos",
     "release:macos:signed": "npm run build:macos:signed && npm run publish:macos",

@@ -1,4 +1,5 @@
 const API_BASE_URL = 'https://comesade-api.kingfrianfrian16.workers.dev';
+const AUTH_TIMEOUT_MS = 30_000;
 
 export type BetterAuthSignInResult = {
   email: string;
@@ -19,7 +20,7 @@ function readEmail(data: unknown, fallback: string): string {
 
 export async function signInWithBetterAuth(email: string, password: string): Promise<BetterAuthSignInResult | null> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 30_000);
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
   try {
     const response = await fetch(`${API_BASE_URL}/api/auth/sign-in/email`, {
       method: 'POST',
@@ -47,16 +48,23 @@ export async function signInWithBetterAuth(email: string, password: string): Pro
 }
 
 export async function signOutBetterAuth(token: string): Promise<void> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) return;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
   try {
     await fetch(`${API_BASE_URL}/api/auth/sign-out`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${normalizedToken}`,
       },
       credentials: 'omit',
+      signal: controller.signal,
     });
   } catch {
     // Ignore network errors on sign-out.
+  } finally {
+    window.clearTimeout(timeout);
   }
 }

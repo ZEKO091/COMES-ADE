@@ -31,8 +31,15 @@ for app in "${apps[@]}"; do
   elif [[ "$lower" == *x86_64* || "$lower" == *x64* || "$parent" == *x86_64* ]]; then
     stable="ComesADE-x64.app.zip"
   else
-    # Default Apple Silicon when Tauri omits the arch in the path.
-    stable="ComesADE-arm64.app.zip"
+    # Native Tauri builds omit the architecture from the bundle path.
+    case "$(uname -m)" in
+      arm64|aarch64) stable="ComesADE-arm64.app.zip" ;;
+      x86_64|amd64) stable="ComesADE-x64.app.zip" ;;
+      *)
+        echo "No se pudo detectar la arquitectura de macOS: $(uname -m)" >&2
+        exit 1
+        ;;
+    esac
   fi
 
   zip_path="$release_dir/$stable"
@@ -41,6 +48,36 @@ for app in "${apps[@]}"; do
   ditto -c -k --sequesterRsrc --keepParent "$app" "$zip_path"
   echo "App Mac publicada: $zip_path (desde $base)"
   published=$((published + 1))
+done
+
+# Publish the DMG installer next to the portable .app zip.
+dmgs=(
+  "$project_root"/src-tauri/target/*/release/bundle/dmg/*.dmg
+  "$project_root"/src-tauri/target/release/bundle/dmg/*.dmg
+)
+published_dmgs=0
+for dmg in "${dmgs[@]}"; do
+  [[ -f "$dmg" ]] || continue
+
+  lower="$(printf '%s' "$dmg" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lower" == *aarch64* || "$lower" == *arm64* ]]; then
+    stable="ComesADE-arm64.dmg"
+  elif [[ "$lower" == *x86_64* || "$lower" == *x64* ]]; then
+    stable="ComesADE-x64.dmg"
+  else
+    case "$(uname -m)" in
+      arm64|aarch64) stable="ComesADE-arm64.dmg" ;;
+      x86_64|amd64) stable="ComesADE-x64.dmg" ;;
+      *)
+        echo "No se pudo detectar la arquitectura de macOS: $(uname -m)" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  cp -f "$dmg" "$release_dir/$stable"
+  echo "Instalador DMG publicado: $release_dir/$stable"
+  published_dmgs=$((published_dmgs + 1))
 done
 
 # Also keep updater tarballs if present (signed updates).
@@ -58,4 +95,9 @@ if (( published == 0 )); then
   exit 1
 fi
 
-echo "Listo. Artefactos en releases/: ComesADE-arm64.app.zip / ComesADE-x64.app.zip (misma app que ComesADE-Setup.exe en Windows)."
+if (( published_dmgs == 0 )); then
+  echo "No se pudo publicar ningun .dmg de Mac." >&2
+  exit 1
+fi
+
+echo "Listo. Artefactos en releases/: .app.zip + .dmg por arquitectura y artefactos del updater."

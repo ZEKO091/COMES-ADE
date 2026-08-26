@@ -10,6 +10,7 @@ $bundleDirectory = Join-Path $projectRoot 'src-tauri\target\release\bundle\nsis'
 $desktopDirectory = [Environment]::GetFolderPath('Desktop')
 $releaseDirectory = Join-Path $projectRoot 'releases'
 $stableInstaller = Join-Path $releaseDirectory 'ComesADE-Setup.exe'
+$tauriConfigPath = Join-Path $projectRoot 'src-tauri\tauri.conf.json'
 
 if ([string]::IsNullOrWhiteSpace($desktopDirectory)) {
   $oneDriveDesktop = Join-Path $env:USERPROFILE 'OneDrive\Desktop'
@@ -26,12 +27,17 @@ if (-not (Test-Path -LiteralPath $releaseExe -PathType Leaf)) {
   throw "No existe el build de ComesADE: $releaseExe. Ejecuta npm run tauri build primero."
 }
 
-$installer = Get-ChildItem -LiteralPath $bundleDirectory -Filter 'ComesADE_*_x64-setup.exe' -File |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
+$tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
+$version = ([string]$tauriConfig.version).Trim()
+if ([string]::IsNullOrWhiteSpace($version)) {
+  throw "No se pudo determinar la versión desde $tauriConfigPath."
+}
+
+$installerPath = Join-Path $bundleDirectory "ComesADE_${version}_x64-setup.exe"
+$installer = Get-Item -LiteralPath $installerPath -ErrorAction SilentlyContinue
 
 if ($null -eq $installer) {
-  throw "No se encontró el instalador NSIS en $bundleDirectory. Ejecuta npm run build:windows:signed primero."
+  throw "No se encontró el instalador NSIS esperado: $installerPath. Ejecuta npm run tauri build primero."
 }
 
 function Assert-ValidAuthenticodeSignature {

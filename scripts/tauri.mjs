@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { openSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureVite, VITE_ORIGIN } from './vite-server.mjs';
@@ -22,7 +22,7 @@ function tauriEnv() {
   const env = { ...process.env };
   const userTemp = env.LOCALAPPDATA
     ? join(env.LOCALAPPDATA, 'Temp')
-    : join(homedir(), 'AppData', 'Local', 'Temp');
+    : tmpdir();
 
   for (const key of Object.keys(env)) {
     const name = key.toUpperCase();
@@ -40,6 +40,7 @@ function tauriEnv() {
   } else {
     env.COMESADE_BACKGROUND = '1';
   }
+  env.TMPDIR = env.TMPDIR && !env.TMPDIR.includes(SANDBOX_MARKER) ? env.TMPDIR : userTemp;
   return env;
 }
 

@@ -17,11 +17,12 @@ pub struct DesignBridgeInfo {
     pub port: u16,
 }
 
-pub fn start(app: AppHandle) -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("No se pudo abrir el puente de Design Mode");
+pub fn start(app: AppHandle) -> Result<u16, String> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("No se pudo abrir el puente de Design Mode: {error}"))?;
     let port = listener
         .local_addr()
-        .expect("No se pudo leer el puerto de Design Mode")
+        .map_err(|error| format!("No se pudo leer el puerto de Design Mode: {error}"))?
         .port();
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -46,7 +47,7 @@ pub fn start(app: AppHandle) -> u16 {
             );
         }
     });
-    port
+    Ok(port)
 }
 
 #[tauri::command]
@@ -75,11 +76,39 @@ pub fn capture_webview_region(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("No hay un preview activo ({label})."))?;
+    if !x.is_finite()
+        || !y.is_finite()
+        || !w.is_finite()
+        || !h.is_finite()
+        || !dpr.is_finite()
+        || w <= 0.0
+        || h <= 0.0
+        || dpr <= 0.0
+        || dpr > 4.0
+    {
+        return Err("La zona de captura no es valida.".into());
+    }
     let scale = if dpr > 0.1 { dpr } else { 1.0 };
-    let px = (x * scale).floor() as i32;
-    let py = (y * scale).floor() as i32;
-    let pw = (w * scale).ceil() as i32;
-    let ph = (h * scale).ceil() as i32;
+    let px = (x * scale).floor();
+    let py = (y * scale).floor();
+    let pw = (w * scale).ceil();
+    let ph = (h * scale).ceil();
+    if !px.is_finite()
+        || !py.is_finite()
+        || !pw.is_finite()
+        || !ph.is_finite()
+        || pw < 2.0
+        || ph < 2.0
+        || pw > 8192.0
+        || ph > 8192.0
+        || pw * ph > 16_000_000.0
+    {
+        return Err("La zona de captura es demasiado grande.".into());
+    }
+    let px = px as i32;
+    let py = py as i32;
+    let pw = pw as i32;
+    let ph = ph as i32;
     if pw < 2 || ph < 2 {
         return Err("La zona seleccionada es demasiado pequeña.".into());
     }
@@ -132,13 +161,24 @@ unsafe fn capture_screen_region(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8
         return Err("No se pudo leer la pantalla.".into());
     }
     let mem_dc = CreateCompatibleDC(screen);
+    if mem_dc.is_null() {
+        ReleaseDC(std::ptr::null_mut(), screen);
+        return Err("No se pudo crear el buffer de captura.".into());
+    }
     let bmp = CreateCompatibleBitmap(screen, w, h);
-    if mem_dc.is_null() || bmp.is_null() {
+    if bmp.is_null() {
+        DeleteDC(mem_dc);
         ReleaseDC(std::ptr::null_mut(), screen);
         return Err("No se pudo crear el buffer de captura.".into());
     }
     let old = SelectObject(mem_dc, bmp);
-    BitBlt(mem_dc, 0, 0, w, h, screen, x, y, SRCCOPY | CAPTUREBLT);
+    if BitBlt(mem_dc, 0, 0, w, h, screen, x, y, SRCCOPY | CAPTUREBLT) == 0 {
+        SelectObject(mem_dc, old);
+        DeleteObject(bmp);
+        DeleteDC(mem_dc);
+        ReleaseDC(std::ptr::null_mut(), screen);
+        return Err("No se pudo copiar la zona de la pantalla.".into());
+    }
 
     let mut info: BITMAPINFO = std::mem::zeroed();
     info.bmiHeader = BITMAPINFOHEADER {

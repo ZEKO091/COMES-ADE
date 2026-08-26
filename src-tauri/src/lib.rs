@@ -1195,7 +1195,9 @@ fn is_allowed_github_update_url(url: &str) -> bool {
         && (lower.ends_with(".exe")
             || lower.ends_with(".msi")
             || lower.ends_with(".dmg")
-            || lower.ends_with(".pkg"))
+            || lower.ends_with(".pkg")
+            || lower.ends_with(".app.zip")
+            || lower.ends_with(".zip"))
 }
 
 #[tauri::command]
@@ -1214,6 +1216,8 @@ fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String
         "dmg"
     } else if lower_url.ends_with(".pkg") {
         "pkg"
+    } else if lower_url.ends_with(".app.zip") || lower_url.ends_with(".zip") {
+        "zip"
     } else {
         "exe"
     };
@@ -1280,7 +1284,7 @@ fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String
 
     #[cfg(windows)]
     {
-        if extension == "dmg" || extension == "pkg" {
+        if extension == "dmg" || extension == "pkg" || extension == "zip" {
             return Err("Este paquete de macOS no se puede instalar en Windows.".to_string());
         }
         let mut command = if extension == "msi" {
@@ -1306,13 +1310,13 @@ fn download_and_install_update(app: AppHandle, url: String) -> Result<(), String
 
     #[cfg(target_os = "macos")]
     {
-        if extension != "dmg" && extension != "pkg" {
-            return Err("En macOS solo se admiten paquetes .dmg o .pkg.".to_string());
+        if extension != "dmg" && extension != "pkg" && extension != "zip" {
+            return Err("En macOS solo se admiten paquetes .app.zip, .dmg o .pkg.".to_string());
         }
         Command::new("open")
             .arg(&target_path)
             .spawn()
-            .map_err(|error| format!("No se pudo abrir el instalador de macOS: {error}"))?;
+            .map_err(|error| format!("No se pudo abrir el paquete de macOS: {error}"))?;
         return Ok(());
     }
 
@@ -2111,6 +2115,7 @@ pub fn run() {
             provider_auth::provider_usage_restore,
             agent_runtime::agent_chat_start,
             agent_runtime::agent_chat_cancel,
+            agent_runtime::agent_permission_decide,
             design_mode::design_bridge_port,
             design_mode::webview_eval,
             design_mode::capture_webview_region,
@@ -2131,7 +2136,8 @@ pub fn run() {
             download_and_install_update
         ])
         .setup(|app| {
-            let port = design_mode::start(app.handle().clone());
+            let port = design_mode::start(app.handle().clone())
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(design_mode::DesignBridgePort(port));
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(windows)]

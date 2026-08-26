@@ -33,7 +33,7 @@ if [[ -n "${TAURI_TARGET:-}" ]]; then
   target_args+=(--target "$TAURI_TARGET")
 fi
 
-npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles app "${target_args[@]}"
+npm run tauri build -- --config src-tauri/tauri.updater.conf.json --bundles app,dmg "${target_args[@]}"
 
 shopt -s nullglob
 apps=(

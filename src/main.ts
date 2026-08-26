@@ -15,7 +15,7 @@ import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 import comesadeLogoUrl from './assets/comesade-logo.png';
 import { STT_LANGUAGES } from './stt-languages';
-import { bindComposerSpeech, listMicrophones, setSelectedMicrophoneId } from './stt';
+import { bindComposerSpeech, listMicrophones, setSelectedMicrophoneId, type MicrophoneOption } from './stt';
 import { signInWithBetterAuth, signOutBetterAuth } from './auth-client';
 import {
   countSpeechTokens,
@@ -133,6 +133,12 @@ type UsageSnapshot = {
   retryAfter: number | null;
   exhausted: boolean;
 };
+type AgentTokenUsage = {
+  requestId: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number;
+};
 type ProviderOAuthStart = {
   provider: string;
   verificationUri: string | null;
@@ -149,6 +155,10 @@ type ProviderOAuthPoll = {
   status: ProviderStatus;
 };
 type AgentChatMessage = { role: 'user' | 'assistant' | 'system'; content: string; images?: string[] };
+type AgentPermissionMode = 'read-only' | 'ask' | 'approve' | 'full';
+type NativeAgentPermissionRequest = { permissionId: string; requestId: string; tool: string; summary: string };
+type AgentMemorySource = 'manual' | 'chat';
+type AgentMemoryEntry = { id: string; text: string; createdAt: number; source: AgentMemorySource };
 type NativeAgentDelta = { requestId: string; text: string };
 type NativeAgentTool = { requestId: string; name: string; input: string; output: string };
 type NativeAgentDone = { requestId: string; error: string | null };
@@ -191,6 +201,8 @@ type OpenFileTab = {
   content: string;
   dirty: boolean;
 };
+
+type ComposerContextFile = Pick<OpenFileTab, 'path' | 'root'>;
 
 type TerminalOutputQueue = {
   data: string;
@@ -258,6 +270,7 @@ const icons = {
   desktop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>',
   stats: '<svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
   user: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 10a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>',
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   grid: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
   git: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/><path d="M7 9v4a4 4 0 0 0 4 4h4M17 15v-4a4 4 0 0 0-4-4h-2"/></svg>',
@@ -268,12 +281,15 @@ const icons = {
   chevronLeft: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 19-7-7 7-7"/></svg>',
   chevronRight: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>',
   send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 8-16 8 3-8zM7 12h13"/></svg>',
+  cursor: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 3 6.8 16.4 2.2-6.4 6.4-2.2z"/><path d="m14.2 14.2 4.6 4.6"/></svg>',
+  crop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v4H3M17 3v4h4M7 21v-4H3M17 21v-4h4"/><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
   minimize: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>',
   maximize: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
   windowClose: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>',
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>',
   mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/></svg>',
   speaker: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h3l4 4V6L7 10H4zM16 9a4 4 0 0 1 0 6M18.5 7a7 7 0 0 1 0 10"/></svg>',
+  brain: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="12" cy="7.2" r="1.15" fill="currentColor" stroke="none"/><circle cx="15.5" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="7.2" cy="12.5" r="1.15" fill="currentColor" stroke="none"/><circle cx="12" cy="11.5" r="1.15" fill="currentColor" stroke="none"/><circle cx="16.8" cy="12.5" r="1.15" fill="currentColor" stroke="none"/><circle cx="9.2" cy="16" r="1.15" fill="currentColor" stroke="none"/><circle cx="14.8" cy="16" r="1.15" fill="currentColor" stroke="none"/><circle cx="12" cy="18.2" r="1.05" fill="currentColor" stroke="none"/></svg>',
 };
 
 /* Gemini UI removed: the ComesADE surface below is the only rendered shell.
@@ -483,7 +499,7 @@ function renderComesadeLegacyReference(): void {
     "    <aside class='sidebar' aria-label='Navegación principal'><div class='sidebar-identity'><span class='sidebar-kicker'>LOCAL DESKTOP</span><span class='product-badge'>IDE</span></div><div class='sidebar-section-label'>Producto</div><nav class='sidebar-nav' aria-label='Producto'><button class='sidebar-nav-item is-active' data-view='overview' type='button'><span class='nav-glyph'>▦</span><span><strong>Workspace</strong><small>Workspace</small></span></button><button class='sidebar-nav-item' data-view='asa' type='button'><span class='nav-glyph'>✦</span><span><strong>Agents</strong><small>Agentes y sesiones</small></span></button><button class='sidebar-nav-item' data-view='terminals' type='button'><span class='nav-glyph'>›_</span><span><strong>Terminal</strong><small>Shells locales</small></span></button><button class='sidebar-nav-item' data-view='tools' type='button'><span class='nav-glyph'>◎</span><span><strong>Tools</strong><small>Browser y preview</small></span></button></nav>",
     "      <div class='sidebar-section-title'><span>Workspaces</span><button class='icon-button' id='sidebar-open-workspaces' type='button' title='Abrir workspace'>+</button></div><button class='active-workspace-card' id='active-workspace-card' type='button'><span class='workspace-card-icon'>□</span><span class='workspace-card-copy'><strong id='active-workspace-name'>Sin workspace</strong><small id='active-workspace-path'>Crea o abre una carpeta</small></span><span class='workspace-card-chevron'>›</span></button><div class='sidebar-project-empty' id='sidebar-project-empty' hidden><span>□</span><strong>Sin workspace</strong><small>Abre una carpeta local para empezar.</small></div>",
     "      <div class='sidebar-workspace-heading'><span id='sidebar-project-label'>Workspace</span><button class='icon-button' id='sidebar-filter-btn' type='button' title='Filtros: todas las sesiones'>≡</button></div><div class='session-list' id='session-list'></div><div class='sidebar-session-actions'><input class='sidebar-search-input' id='sidebar-search-input' type='search' placeholder='Filtrar sesiones' aria-label='Filtrar sesiones' /><button class='secondary-button sidebar-new-session' id='sidebar-new-session' type='button'>+<span>Nueva sesión</span></button></div>",
-    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>1.0.0</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
+    "      <div class='sidebar-spacer'></div><div class='sidebar-footer'><button class='sidebar-runtime-button' id='sidebar-runtime' type='button'><span class='status-dot'></span><span><strong>Runtime local</strong><small id='connection-state'>LOCAL / STARTING</small></span></button><div class='sidebar-footer-actions'><button class='icon-button' id='sidebar-help' type='button' title='Ayuda'>?</button><button class='icon-button' id='sidebar-feedback' type='button' title='Comentarios'>…</button><button class='icon-button' id='sidebar-stats' type='button' title='Estadísticas'>▥</button><button class='icon-button' id='sidebar-settings' type='button' title='Configuración'>⚙</button></div><div class='sidebar-version'><span>COMESADE</span><span id='app-version-label'>1.0.2</span></div></div><div class='sidebar-resizer' id='sidebar-resizer' aria-hidden='true'></div>",
     "    </aside>",
     "    <main class='workspace-main view-overview'><header class='workspace-header'><div class='workspace-header-copy'><span class='eyebrow'>IDE / LOCAL WORKSPACE</span><h1 id='workspace-heading'>Sin workspace seleccionado</h1><p id='workspace-header-path'>Crea o abre un workspace para comenzar.</p></div><div class='workspace-header-actions'><button class='header-button' id='open-workspace-menu' type='button'>Workspace</button><button class='header-button' id='open-browser-menu' type='button'>Browser</button><button class='header-button header-button-primary' id='header-new-session' type='button'>+<span>Nueva sesión</span></button></div></header>",
     "      <div class='workspace-views-stack' id='workspace-views-stack'>",
@@ -529,6 +545,10 @@ function renderComesadeSurface(): void {
           </button>
           <button class="titlebar-btn" id="open-command-palette" type="button" title="Search" data-i18n="common.search" data-i18n-title="common.search">Search</button>
           <button class="titlebar-btn" id="titlebar-composer-toggle" type="button" title="AI" data-i18n="chrome.ai" data-i18n-title="chrome.ai">AI</button>
+          <button class="titlebar-notifications" id="titlebar-notifications" type="button" title="Notifications" data-i18n-title="notifications.open" data-i18n-aria="notifications.open" aria-label="Open notifications" aria-haspopup="dialog" aria-expanded="false" aria-controls="notifications-menu">
+            ${icons.bell}
+            <span class="titlebar-notifications-badge" id="titlebar-notifications-badge" hidden aria-hidden="true"></span>
+          </button>
           <button class="titlebar-account" id="titlebar-account" type="button" title="Account" data-i18n-title="common.account" aria-haspopup="menu" aria-expanded="false">${icons.user}</button>
           <div class="titlebar-window-slot titlebar-window-slot-right" id="titlebar-window-slot-right"></div>
         </div>
@@ -564,7 +584,7 @@ function renderComesadeSurface(): void {
             <span class="github-account-dot" id="ai-accounts-dot"></span>
           </button>
 
-          <nav class="sidebar-nav" aria-label="Vistas principales">
+          <nav class="sidebar-nav" aria-label="Vistas principales" data-i18n-aria="chrome.mainViews">
             <button class="sidebar-nav-item is-active" data-view="overview" type="button">
               <span class="nav-glyph">▦</span>
               <span><strong data-i18n="chrome.editor">Editor</strong><small data-i18n="chrome.editorHint">Archivos y chat</small></span>
@@ -588,7 +608,7 @@ function renderComesadeSurface(): void {
           </nav>
 
           <div class="sidebar-section-title">
-            <span data-i18n="chrome.activeProjects">Active projects</span>
+            <span data-i18n="chrome.activeProjects">Proyectos activos</span>
             <button class="icon-button" id="sidebar-open-workspaces" type="button" title="Abrir workspace" data-i18n-title="chrome.openWorkspace">+</button>
           </div>
 
@@ -608,7 +628,7 @@ function renderComesadeSurface(): void {
           </div>
 
           <div class="sidebar-workspace-heading">
-            <span id="sidebar-project-label" data-i18n="chrome.threads">Coding threads</span>
+            <span id="sidebar-project-label" data-i18n="chrome.threads">Hilos de código</span>
             <button class="icon-button" id="sidebar-filter-btn" type="button" title="Filtros: todas las sesiones" data-i18n-title="chrome.filterSessions">≡</button>
           </div>
           <div class="session-list" id="session-list"></div>
@@ -623,12 +643,12 @@ function renderComesadeSurface(): void {
           <div class="sidebar-footer">
             <button class="sidebar-runtime-button" id="sidebar-runtime" type="button">
               <span class="status-dot"></span>
-              <span><strong data-i18n="chrome.local">Local</strong><small id="connection-state" data-i18n="chrome.thisComputer">This computer</small></span>
+              <span><strong data-i18n="chrome.local">Local</strong><small id="connection-state" data-i18n="chrome.thisComputer">Este equipo</small></span>
             </button>
             <div class="sidebar-footer-actions">
               <button class="icon-button sidebar-refresh-action" id="refresh-workspace-btn" type="button" title="Actualizar sesiones, archivos y Git" aria-label="Actualizar sesiones, archivos y Git" data-i18n-title="chrome.refreshAll" data-i18n-aria="chrome.refreshAll">${icons.refresh}</button>
             </div>
-            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">1.0.0</span></div>
+            <div class="sidebar-version"><span>COMESADE</span><span id="app-version-label">1.0.2</span></div>
           </div>
           <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
         </aside>
@@ -676,7 +696,7 @@ function renderComesadeSurface(): void {
                 <p data-i18n="chrome.lockCopy">Conecta archivos, terminales, Git y previews desde una carpeta local.</p>
                 <div class="workspace-lock-actions">
                   <button class="secondary-button" id="workspace-lock-open" type="button" data-i18n="chrome.lockOpen">Abrir workspace</button>
-                  <button class="primary-button" id="workspace-lock-create" type="button" data-i18n="chrome.lockCreate">Crear workspace</button>
+                  <button class="primary-button" id="workspace-lock-create" type="button" data-i18n="menu.create">Crear repositorio</button>
                 </div>
               </section>
 
@@ -765,11 +785,21 @@ function renderComesadeSurface(): void {
                     <small id="agent-chat-subtitle" data-i18n="chrome.thisDevice">Este dispositivo</small>
                   </div>
                   <div class="agent-chat-header-actions">
+                    <button class="secondary-button composer-memory-btn" id="composer-memory" type="button" title="Memory" data-i18n-title="memory.button" aria-haspopup="dialog" aria-expanded="false">
+                      <span class="composer-memory-icon" aria-hidden="true">${icons.brain}</span>
+                      <span data-i18n="memory.button">Memory</span>
+                      <em class="composer-memory-count" id="composer-memory-count" hidden>0</em>
+                    </button>
                     <button class="secondary-button" id="composer-accounts" type="button" data-i18n="chrome.accounts">Cuentas</button>
                     <button class="icon-button" id="composer-hide" type="button" title="Ocultar chat" data-i18n-title="chrome.hideChat">${icons.close}</button>
                   </div>
                 </header>
                 <p class="agent-chat-hint" id="agent-chat-hint" data-i18n="chrome.agentHint">El agente corre en este PC. Conecta tu plan y escribe; ComesADE no lo ejecuta en un servidor.</p>
+                <div class="agent-access-strip" id="agent-access-strip" role="status">
+                  <span class="agent-access-dot" aria-hidden="true"></span>
+                  <strong data-i18n="chrome.agentAccessReal">Acceso local real</strong>
+                  <span data-i18n="chrome.agentAccessScope">Workspace · shell · Git · procesos</span>
+                </div>
                 <div class="native-agent-log" id="native-agent-log" hidden></div>
                 <div class="composer-listening" id="composer-listening" hidden role="status" aria-live="polite">
                   <div class="composer-listening-bars" id="composer-listening-bars" aria-hidden="true">${Array.from({ length: 28 }, () => '<i></i>').join('')}</div>
@@ -793,16 +823,22 @@ function renderComesadeSurface(): void {
                       <span data-i18n="chrome.changes">Changes</span> <b class="stat-add" id="composer-git-add">+0</b> <b class="stat-delete" id="composer-git-del">-0</b>
                     </button>
                     <button class="composer-commit-action" id="composer-commit-action" type="button" hidden>
-                      <span data-i18n="chrome.createBranch">Create Branch &amp; Commit</span> ${icons.chevron}
+                      <span data-i18n="chrome.createBranch">Crear rama y commit</span> ${icons.chevron}
                     </button>
                   </div>
                   <div class="composer-captures" id="composer-captures" hidden></div>
                   <div class="ai-context-bar" id="ai-context-bar" hidden></div>
                   <div class="composer-input-card">
                     <button class="icon-button composer-plus" id="ai-attach-context" type="button" title="Adjuntar archivo" data-i18n-title="chrome.attach">${icons.add}</button>
-                    <textarea class="composer-input" id="native-agent-input" rows="1" placeholder="Escribe un mensaje" data-i18n-placeholder="chrome.writeMessage"></textarea>
+                    <textarea class="composer-input" id="native-agent-input" rows="1" placeholder="Escribe un mensaje" aria-label="Mensaje para el agente" data-i18n-placeholder="chrome.writeMessage"></textarea>
                     <div class="composer-input-end">
                       <select class="visually-hidden" id="native-agent-provider" aria-label="Cuenta" data-i18n-aria="chrome.accountSelect"></select>
+                      <button class="composer-stop" id="native-agent-cancel" type="button" hidden title="Stop" data-i18n-title="chrome.stop">${icons.stop}</button>
+                      <button class="composer-send" id="native-agent-send" type="submit" title="Send" data-i18n-title="chrome.send" hidden>${icons.chevron}</button>
+                    </div>
+                  </div>
+                  <div class="composer-meta-row">
+                    <div class="composer-meta-leading">
                       <button class="composer-account" id="composer-account" type="button" aria-haspopup="listbox" aria-expanded="false" title="Cuenta del agente" data-i18n-title="chrome.accountSelect">
                         <span class="composer-account-dot" aria-hidden="true"></span>
                         <span id="composer-account-label" data-i18n="chrome.accountSelect">Cuenta</span>
@@ -811,51 +847,75 @@ function renderComesadeSurface(): void {
                       <button class="native-agent-model" id="native-agent-model" type="button" aria-haspopup="listbox" aria-expanded="false" title="Cambiar modelo" data-i18n-title="chrome.changeModel" hidden>
                         <span id="native-agent-model-label" data-i18n="chrome.model">Modelo</span>
                       </button>
-                      <button class="composer-usage" id="composer-usage" type="button" title="Context" aria-label="Context" data-i18n-title="chrome.contextUsed" data-i18n-aria="chrome.contextUsed">
+                      <div class="native-agent-efforts" id="native-agent-efforts" hidden></div>
+                      <button class="composer-permissions" id="composer-permissions" type="button" aria-haspopup="menu" aria-expanded="false" title="Permisos del agente" data-i18n-title="permission.button"><span class="composer-permissions-dot" aria-hidden="true"></span><span id="composer-permissions-label" data-i18n="permission.fullAccess">Full Access</span>${icons.chevron}</button>
+                      <button class="composer-usage" id="composer-usage" type="button" title="Contexto" aria-label="Contexto" data-i18n-title="chrome.contextUsed" data-i18n-aria="chrome.contextUsed">
                         <svg class="composer-usage-ring" viewBox="0 0 36 36" aria-hidden="true">
                           <circle class="composer-usage-track" cx="18" cy="18" r="14" fill="none" />
                           <circle class="composer-usage-progress" id="composer-usage-progress" cx="18" cy="18" r="14" fill="none" pathLength="100" />
                         </svg>
                         <span class="composer-usage-pct" id="composer-usage-pct">0%</span>
                       </button>
+                    </div>
+                    <div class="composer-meta-trailing">
+                      <button class="composer-meta-chip" id="composer-git-branch" type="button" title="Cambiar rama" hidden>${icons.branch}<span id="composer-git-branch-label"></span></button>
+                      <span class="composer-meta-chip" id="composer-runtime" title="El agente corre en este PC" data-i18n-title="chrome.agentHint">${icons.desktop}<span data-i18n="chrome.thisPc">Este PC</span></span>
+                      <span class="composer-meta-chip composer-token-usage" id="composer-agent-tokens" hidden role="status" aria-live="polite"></span>
+                      <span class="native-agent-status composer-busy-spin" id="native-agent-status" hidden></span>
+                      <span class="composer-message-quota" id="composer-message-quota" hidden>Msgs</span>
+                      <span class="composer-speech-quota" id="composer-speech-quota" hidden>Voz</span>
+                      <button class="composer-meta-chip composer-stt-lang" id="composer-stt-lang-button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Idioma de dictado" title="Idioma para dictado en ComesADE" data-i18n-aria="chrome.sttLang" data-i18n-title="chrome.sttLang"><span id="composer-stt-lang-label" data-i18n="lang.autoShort">Automático</span></button>
+                      <select class="visually-hidden" id="composer-stt-lang" aria-hidden="true" tabindex="-1"></select>
+                      <button class="icon-button composer-tts" id="composer-tts" type="button" title="Leer respuesta del agente" data-i18n-title="chrome.tts">${icons.speaker}</button>
                       <button class="icon-button composer-mic" id="composer-mic" type="button" title="Dictado en ComesADE" data-i18n-title="chrome.mic" aria-pressed="false">${icons.mic}</button>
-                      <button class="composer-stop" id="native-agent-cancel" type="button" hidden title="Stop" data-i18n-title="chrome.stop">${icons.stop}</button>
-                      <button class="composer-send" id="native-agent-send" type="submit" title="Send" data-i18n-title="chrome.send" hidden>${icons.chevron}</button>
                     </div>
                   </div>
-                  <div class="composer-meta-row">
-                    <button class="composer-meta-chip" id="composer-git-branch" type="button" title="Cambiar rama" hidden>${icons.branch}<span id="composer-git-branch-label"></span></button>
-                    <span class="composer-meta-chip" id="composer-runtime" title="El agente corre en este PC" data-i18n-title="chrome.agentHint">${icons.desktop}<span data-i18n="chrome.thisPc">This PC</span></span>
-                    <span class="native-agent-status composer-busy-spin" id="native-agent-status" hidden></span>
-                    <span class="native-agent-form-spacer"></span>
-                    <span class="composer-message-quota" id="composer-message-quota" hidden>Msgs</span>
-                    <span class="composer-speech-quota" id="composer-speech-quota" hidden>Voz</span>
-                    <button class="composer-meta-chip composer-stt-lang" id="composer-stt-lang-button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Idioma de dictado" title="Idioma para dictado en ComesADE" data-i18n-aria="chrome.sttLang" data-i18n-title="chrome.sttLang"><span id="composer-stt-lang-label">Auto</span></button>
-                    <select class="visually-hidden" id="composer-stt-lang" aria-hidden="true" tabindex="-1"></select>
-                    <button class="icon-button composer-tts" id="composer-tts" type="button" title="Leer respuesta del agente" data-i18n-title="chrome.tts">${icons.speaker}</button>
-                  </div>
-                  <div class="native-agent-efforts" id="native-agent-efforts" hidden></div>
                 </form>
               </section>
 
             <section class="tools-view" id="tools-view">
               <header class="tools-header">
                 <div class="browser-chrome">
-                  <strong data-i18n="chrome.browser">Browser</strong>
-                  <small data-i18n="chrome.previewReal">Preview real</small>
+                  <span class="browser-chrome-icon" aria-hidden="true">${icons.browser}</span>
+                  <span class="browser-chrome-copy"><strong data-i18n="chrome.browser">Browser</strong><small data-i18n="chrome.previewReal">Preview real</small></span>
+                  <span class="design-chrome-badge"><span class="design-selection-dot" aria-hidden="true"></span><span data-i18n="chrome.design">Design</span></span>
                 </div>
                 <div class="tools-header-actions">
-                  <button class="secondary-button" id="design-mode-toggle" type="button" title="Design Mode (Ctrl+Shift+D)" data-i18n="chrome.design">Design</button>
+                  <button class="secondary-button" id="design-mode-toggle" type="button" title="Design Mode (Ctrl+Shift+D)" data-i18n-title="design.toggleHint" aria-pressed="false"><span class="design-toggle-icon">${icons.pencil}</span><span data-i18n="chrome.design">Design</span></button>
                   <button class="secondary-button" id="tools-new-localhost" type="button" data-i18n="chrome.localhost">Localhost</button>
                   <button class="primary-button" id="tools-new-browser" type="button" data-i18n="chrome.open">Open</button>
                 </div>
               </header>
-              <div class="design-toolbar" id="design-toolbar" hidden>
-                <button type="button" class="design-tool" data-design-tool="select" title="Seleccionar un elemento" data-i18n="chrome.select" data-i18n-title="chrome.selectEl">Select</button>
-                <button type="button" class="design-tool is-active" data-design-tool="draw" title="Capturar una zona del preview" data-i18n="chrome.capture" data-i18n-title="chrome.captureZone">Capture</button>
-                <div class="design-picks" id="design-picks"></div>
-                <button class="secondary-button" id="design-clear" type="button" data-i18n="chrome.clear">Limpiar</button>
-                <button class="primary-button" id="design-to-chat" type="button" data-i18n="chrome.toChat">Al chat</button>
+              <div class="design-toolbar" id="design-toolbar" hidden role="toolbar" aria-label="Design tools" data-i18n-aria="design.toolbarAria">
+                <div class="design-toolbar-title">
+                  <span class="design-toolbar-mark" aria-hidden="true">${icons.pencil}</span>
+                  <span class="design-toolbar-copy">
+                    <strong data-i18n="chrome.design">Design</strong>
+                    <small id="design-mode-hint" data-i18n="design.dragHint">Arrastra una zona del preview para capturarla</small>
+                  </span>
+                </div>
+                <div class="design-tool-group" role="group" aria-label="Design tools" data-i18n-aria="design.toolbarAria">
+                  <button type="button" class="design-tool" data-design-tool="select" title="Seleccionar un elemento" data-i18n-title="chrome.selectEl" aria-pressed="false"><span class="design-tool-icon" aria-hidden="true">${icons.cursor}</span><span data-i18n="chrome.select">Select</span><kbd>1</kbd></button>
+                  <button type="button" class="design-tool is-active" data-design-tool="draw" title="Capturar una zona del preview" data-i18n-title="chrome.captureZone" aria-pressed="true"><span class="design-tool-icon" aria-hidden="true">${icons.crop}</span><span data-i18n="chrome.capture">Capture</span><kbd>2</kbd></button>
+                </div>
+                <div class="design-viewport-control" role="group" aria-label="Tamaño del preview" data-i18n-aria="chrome.viewportGroup">
+                  <span class="design-viewport-label" data-i18n="chrome.viewport">Viewport</span>
+                  <div class="design-viewport-options">
+                    <button type="button" class="design-tool design-viewport-option" data-preview-viewport="mobile" aria-pressed="false" data-i18n-aria="chrome.viewportMobile" data-i18n="chrome.viewportMobile">Celular</button>
+                    <button type="button" class="design-tool design-viewport-option" data-preview-viewport="tablet" aria-pressed="false" data-i18n-aria="chrome.viewportTablet" data-i18n="chrome.viewportTablet">Tablet</button>
+                    <button type="button" class="design-tool design-viewport-option is-active" data-preview-viewport="desktop" aria-pressed="true" data-i18n-aria="chrome.viewportDesktop" data-i18n="chrome.viewportDesktop">PC</button>
+                  </div>
+                </div>
+                <div class="design-toolbar-state" role="status" aria-live="polite">
+                  <span class="design-selection-dot" aria-hidden="true"></span>
+                  <strong id="design-selection-count">0</strong>
+                  <span id="design-selection-count-label" data-i18n="design.selectionCountLabel">selected</span>
+                </div>
+                <div class="design-picks" id="design-picks" role="list" aria-label="Design selections" data-i18n-aria="design.selectionListAria"></div>
+                <div class="design-toolbar-actions">
+                  <button class="secondary-button" id="design-clear" type="button" title="Limpiar selecciones" data-i18n-title="design.clearHint" disabled>${icons.trash}<span data-i18n="chrome.clear">Limpiar</span></button>
+                  <button class="primary-button" id="design-to-chat" type="button" title="Enviar selecciones al chat" data-i18n-title="design.toChatHint" disabled>${icons.send}<span data-i18n="chrome.toChat">Al chat</span></button>
+                </div>
               </div>
               <div class="tool-tabs" id="tool-tabs"></div>
               <div class="tool-stage" id="tool-stage">
@@ -888,7 +948,7 @@ function renderComesadeSurface(): void {
               <div class="terminal-splitter" id="terminal-splitter" role="separator" aria-label="Redimensionar terminal" data-i18n-aria="chrome.resizeTerminal"></div>
               <form class="command-form" id="command-form">
                 <button class="command-cwd" id="command-cwd" type="button" title="Abrir carpeta en el explorador" data-i18n-title="chrome.openFolderExplorer">
-                  <span id="command-cwd-label">Sin directorio activo</span>›
+                  <span id="command-cwd-label" data-i18n="chrome.noCwd">Sin directorio activo</span>›
                 </button>
                 <input class="command-input" id="command-input" type="text" placeholder="Escribe un comando para el shell real..." autocomplete="off" data-i18n-placeholder="chrome.commandPh" />
                 <span class="command-live" id="command-live" data-i18n="status.waiting">WAITING</span>
@@ -1017,6 +1077,7 @@ function renderComesadeSurface(): void {
     </div>
     <div id="modal-root"></div>
     <div id="account-menu-root"></div>
+    <div id="notifications-menu-root"></div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div class="boot-splash" id="boot-splash" role="status" aria-live="polite" aria-label="Cargando ComesADE" data-i18n-aria="chrome.loading">
       <div class="boot-stage">
@@ -1147,6 +1208,7 @@ const gitCommit = document.querySelector<HTMLButtonElement>('#git-commit')!;
 type InspectorTab = 'explorer' | 'overview' | 'git' | 'sessions';
 let activeInspectorTab: InspectorTab = 'explorer';
 const openFileTabs: OpenFileTab[] = [];
+const composerContextFiles: ComposerContextFile[] = [];
 
 function editorLanguage(path: string): string {
   const extension = path.split('.').pop()?.toLowerCase() ?? '';
@@ -1164,6 +1226,7 @@ function editorLanguage(path: string): string {
 
 let monacoApi: typeof Monaco | null = null;
 let monacoLoadPromise: Promise<void> | null = null;
+let syncingEditorValue = false;
 
 async function setupMonacoEditor(): Promise<void> {
   if (codeEditor || monacoLoadPromise) {
@@ -1219,7 +1282,7 @@ async function setupMonacoEditor(): Promise<void> {
       const initialModel = codeEditor.getModel();
       if (initialModel && openFilePath) monacoModule.editor.setModelLanguage(initialModel, editorLanguage(openFilePath));
       codeEditor.onDidChangeModelContent(() => {
-        if (syncingInitialEditorValue) return;
+        if (syncingInitialEditorValue || syncingEditorValue) return;
         openFileDirty = true;
         const tab = currentOpenFileTab();
         if (tab) {
@@ -1276,7 +1339,12 @@ function editorValue(): string {
 
 function setEditorValue(value: string, path = ''): void {
   if (codeEditor) {
-    codeEditor.setValue(value);
+    syncingEditorValue = true;
+    try {
+      codeEditor.setValue(value);
+    } finally {
+      syncingEditorValue = false;
+    }
     const model = codeEditor.getModel();
     if (model && monacoApi) monacoApi.editor.setModelLanguage(model, editorLanguage(path));
   }
@@ -1360,13 +1428,47 @@ function toggleComposer(forceOpen = false): void {
   if (!composerCollapsed) nativeAgentInput.focus();
 }
 
+function composerContextFileKey(file: ComposerContextFile): string {
+  return `${fsPathKey(file.root)}::${relativePathKey(file.path)}`;
+}
+
+function addComposerContextFile(file: ComposerContextFile): void {
+  const path = normalizedRelativePath(file.path);
+  const root = file.root.trim();
+  if (!path || !root) return;
+  const normalized = { path, root };
+  if (composerContextFiles.some((item) => composerContextFileKey(item) === composerContextFileKey(normalized))) return;
+  composerContextFiles.push(normalized);
+  renderAiContextBar();
+}
+
+function removeComposerContextFile(file: ComposerContextFile): void {
+  const key = composerContextFileKey(file);
+  const index = composerContextFiles.findIndex((item) => composerContextFileKey(item) === key);
+  if (index < 0) return;
+  composerContextFiles.splice(index, 1);
+  renderAiContextBar();
+}
+
+function removeComposerContextFilesInside(relative: string): void {
+  const before = composerContextFiles.length;
+  const normalized = normalizedRelativePath(relative);
+  for (let index = composerContextFiles.length - 1; index >= 0; index -= 1) {
+    if (isSameOrInsideRelativePath(composerContextFiles[index].path, normalized)) composerContextFiles.splice(index, 1);
+  }
+  if (composerContextFiles.length !== before) renderAiContextBar();
+}
+
+function clearComposerContextFiles(): void {
+  if (!composerContextFiles.length) return;
+  composerContextFiles.length = 0;
+  renderAiContextBar();
+}
+
 function renderAiContextBar(): void {
   const bar = document.querySelector<HTMLElement>('#ai-context-bar');
   if (!bar) return;
   const chips: string[] = [];
-  if (openFilePath) chips.push(openFilePath.split('/').pop() ?? openFilePath);
-  const extras = openFileTabs.filter((tab) => !openFilePath || relativePathKey(tab.path) !== relativePathKey(openFilePath)).slice(-3);
-  for (const tab of extras) chips.push(tab.path.split('/').pop() ?? tab.path);
   const selection = editorSelectionText();
   if (selection) chips.push('Selection');
   const live = sessions.filter((session) => session.status === 'running' && !exitedSessions.has(session.id));
@@ -1374,10 +1476,24 @@ function renderAiContextBar(): void {
   for (const pick of designPicks.slice(0, 6)) {
     chips.push(pick.imageReference || pick.component || pick.tag + (pick.id ? '#' + pick.id : ''));
   }
-  bar.hidden = chips.length === 0;
-  bar.innerHTML = chips.length
-    ? '<span class="ai-context-label">Context</span>' + chips.map((chip) => '<span class="ai-context-chip">' + escapeHtml(chip) + '</span>').join('')
+  const fileChips = composerContextFiles.map((file, index) => {
+    const name = file.path.split('/').pop() ?? file.path;
+    const removeLabel = `${tx('chrome.remove')}: ${escapeHtml(file.path)}`;
+    return `<button class="ai-context-chip ai-context-chip-file" data-remove-composer-context="${index}" type="button" title="${removeLabel}" aria-label="${removeLabel}"><span>${escapeHtml(name)}</span><span class="ai-context-chip-remove" aria-hidden="true">×</span></button>`;
+  }).join('');
+  const otherChips = chips.map((chip) => '<span class="ai-context-chip">' + escapeHtml(chip) + '</span>').join('');
+  const hasContext = composerContextFiles.length > 0 || chips.length > 0;
+  bar.hidden = !hasContext;
+  bar.innerHTML = hasContext
+    ? `<span class="ai-context-label" data-i18n="chrome.contextUsed">${tx('chrome.contextUsed')}</span>${fileChips}${otherChips}`
     : '';
+  bar.querySelectorAll<HTMLButtonElement>('[data-remove-composer-context]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const index = Number(button.dataset.removeComposerContext ?? '-1');
+      const file = Number.isInteger(index) ? composerContextFiles[index] : undefined;
+      if (file) removeComposerContextFile(file);
+    });
+  });
 }
 
 function setActivity(activity: string): void {
@@ -1445,10 +1561,13 @@ function editorSelectionText(): string {
 function composerEditorContext(): string {
   const selection = editorSelectionText();
   const monacoSelection = codeEditor?.getSelection();
-  const tabs = openFileTabs.map((tab) => tab.path).join(', ');
-  const lines: string[] = ['[Editor context — use this to edit the real workspace]'];
-  lines.push(openFilePath ? `Active file: ${openFilePath}` : 'No file open.');
-  if (tabs) lines.push(`Open tabs: ${tabs}`);
+  const lines: string[] = ['[Explicit agent context — only files and selections listed here were selected by the user. Open editor tabs are not context.]'];
+  if (composerContextFiles.length) {
+    lines.push('Attached files (selected by the user):');
+    for (const file of composerContextFiles) lines.push(`- ${file.path}`);
+  } else {
+    lines.push('No files are attached. Do not use open editor tabs as context.');
+  }
   if (designPicks.length) {
     lines.push('Design Mode selection (screenshots attached as images):');
     for (const [index, pick] of designPicks.slice(0, 8).entries()) {
@@ -1468,9 +1587,24 @@ function composerEditorContext(): string {
     const range = monacoSelection && !monacoSelection.isEmpty()
       ? ` L${monacoSelection.startLineNumber}-${monacoSelection.endLineNumber}`
       : '';
-    lines.push(`Selection${range}:\n\`\`\`\n${selection.slice(0, 12000)}\n\`\`\``);
+    const fileLabel = openFilePath ? ` in explicitly selected editor file ${openFilePath}` : '';
+    lines.push(`Selection${fileLabel}${range}:\n\`\`\`\n${selection.slice(0, 12000)}\n\`\`\``);
   }
   return lines.join('\n');
+}
+
+function composerAgentMemoryContext(): string {
+  const memories = getActiveWorkspaceMemories();
+  if (!memories.length) return '';
+  const lines = ['[Agent memory — durable facts for this workspace; prefer these over guesses]'];
+  for (const entry of memories) {
+    lines.push(`- ${entry.text}`);
+  }
+  return lines.join('\n');
+}
+
+function composerSendContextPrefix(): string {
+  return [composerEditorContext(), composerAgentMemoryContext()].filter(Boolean).join('\n\n');
 }
 
 function activePreviewWebviews(): { id: string; webview: Webview }[] {
@@ -1482,14 +1616,16 @@ function activePreviewWebviews(): { id: string; webview: Webview }[] {
 function designPickerScript(webviewLabel: string): string {
   const port = designBridgePort ?? 0;
   const tool = designTool;
+  const pickerHint = t(tool === 'select' ? 'design.selectHint' : 'design.dragHint');
   return `(() => {
     const port = ${port};
     const tool = ${JSON.stringify(tool)};
     const webviewLabel = ${JSON.stringify(webviewLabel)};
+    const hintText = ${JSON.stringify(pickerHint)};
     const send = (payload) => {
       try { fetch('http://127.0.0.1:' + port + '/pick', { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(Object.assign({ webviewLabel, dpr: window.devicePixelRatio || 1 }, payload)) }); } catch (e) {}
     };
-    const cssKeys = ['display','position','width','height','margin','padding','gap','color','backgroundColor','fontSize','fontWeight','fontFamily','lineHeight','borderRadius','flexDirection','alignItems','justifyContent','gridTemplateColumns'];
+    const cssKeys = ['display','position','width','height','margin','padding','gap','color','backgroundColor','fontSize','fontWeight','fontFamily','lineHeight','borderRadius','flexDirection','alignItems','justifyContent','gridTemplateColumns','border','opacity'];
     const xpathOf = (node) => {
       const parts = [];
       let current = node;
@@ -1532,36 +1668,76 @@ function designPickerScript(webviewLabel: string): string {
     if (old) old.remove();
     const root = document.createElement('div');
     root.id = '__comesade-design-root';
-    root.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:auto;cursor:crosshair;';
+    root.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:auto;cursor:' + (tool === 'select' ? 'default' : 'crosshair') + ';';
     const hover = document.createElement('div');
-    hover.style.cssText = 'position:absolute;border:1.5px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);pointer-events:none;';
+    hover.style.cssText = 'position:absolute;display:none;border:1px solid rgba(137,180,250,.85);background:rgba(137,180,250,.08);pointer-events:none;';
+    const hoverLabel = document.createElement('div');
+    hoverLabel.style.cssText = 'position:absolute;display:none;max-width:260px;padding:4px 7px;border:1px solid rgba(137,180,250,.55);border-radius:4px;background:#101114;color:#e8eef8;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;';
+    const hint = document.createElement('div');
+    hint.textContent = hintText;
+    hint.style.cssText = 'position:absolute;left:12px;bottom:12px;max-width:360px;padding:6px 9px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#101114;color:#a7afbd;font:11px/1.35 ui-sans-serif,system-ui,sans-serif;pointer-events:none;';
+    const measure = document.createElement('div');
+    measure.style.cssText = 'position:absolute;display:none;padding:4px 7px;border:1px solid rgba(137,180,250,.55);border-radius:4px;background:#101114;color:#e8eef8;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;pointer-events:none;';
     const canvas = document.createElement('canvas');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
     root.appendChild(hover);
+    root.appendChild(hoverLabel);
+    root.appendChild(hint);
+    root.appendChild(measure);
     root.appendChild(canvas);
     document.documentElement.appendChild(root);
-    const targetAt = (x, y) => {
-      const hits = document.elementsFromPoint(x, y);
-      return hits.find((node) => node && !root.contains(node)) || null;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = canvas.getContext('2d');
+    const setCanvasSize = () => {
+      canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
+      canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    const move = (event) => {
-      if (drawing) return;
-      if (tool !== 'select') { hover.style.display = 'none'; return; }
-      const el = targetAt(event.clientX, event.clientY);
-      if (!el) { hover.style.display = 'none'; return; }
+    setCanvasSize();
+    const clearCanvas = () => { if (ctx) ctx.clearRect(0, 0, window.innerWidth, window.innerHeight); measure.style.display = 'none'; };
+    const inspectable = (node) => node && node.nodeType === 1 && node !== document.documentElement && node !== document.body;
+    const targetAt = (x, y) => {
+      const previousPointerEvents = root.style.pointerEvents;
+      root.style.pointerEvents = 'none';
+      try {
+        const node = document.elementFromPoint(x, y);
+        return inspectable(node) && !root.contains(node) ? node : null;
+      } finally {
+        root.style.pointerEvents = previousPointerEvents;
+      }
+    };
+    const nameFor = (el) => {
+      const tag = el.tagName.toLowerCase();
+      const id = el.id ? '#' + el.id : '';
+      const className = typeof el.className === 'string' ? el.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2).map((value) => '.' + value).join('') : '';
+      return tag + id + className;
+    };
+    const showHover = (el) => {
       const rect = el.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) { hover.style.display = 'none'; hoverLabel.style.display = 'none'; return; }
       hover.style.display = 'block';
       hover.style.left = rect.left + 'px';
       hover.style.top = rect.top + 'px';
       hover.style.width = rect.width + 'px';
       hover.style.height = rect.height + 'px';
+      hoverLabel.textContent = nameFor(el);
+      hoverLabel.style.display = 'block';
+      const labelWidth = Math.max(90, hoverLabel.getBoundingClientRect().width);
+      hoverLabel.style.left = Math.max(4, Math.min(window.innerWidth - labelWidth - 4, rect.left)) + 'px';
+      hoverLabel.style.top = Math.max(4, rect.top >= 28 ? rect.top - 26 : rect.bottom + 4) + 'px';
+    };
+    const hideHover = () => { hover.style.display = 'none'; hoverLabel.style.display = 'none'; };
+    let lastTarget = null;
+    const move = (event) => {
+      if (drawing || tool !== 'select') return;
+      const el = targetAt(event.clientX, event.clientY);
+      if (!el) { lastTarget = null; hideHover(); return; }
+      if (el !== lastTarget) lastTarget = el;
+      showHover(el);
     };
     let drawing = false;
     let dragged = false;
     let start = null;
-    const ctx = canvas.getContext('2d');
     const down = (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
@@ -1569,24 +1745,35 @@ function designPickerScript(webviewLabel: string): string {
       drawing = true;
       dragged = false;
       start = { x: event.clientX, y: event.clientY };
+      if (tool === 'select') hideHover();
     };
     const drag = (event) => {
       if (!drawing || !ctx || !start) { move(event); return; }
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragged = true;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = 'rgba(255,255,255,.7)';
-      ctx.lineWidth = 1.5;
+      clearCanvas();
+      const x = Math.min(start.x, event.clientX);
+      const y = Math.min(start.y, event.clientY);
+      const w = Math.abs(dx);
+      const h = Math.abs(dy);
+      ctx.fillStyle = 'rgba(137,180,250,.12)';
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = 'rgba(137,180,250,.9)';
+      ctx.lineWidth = 1;
       ctx.setLineDash([4, 3]);
-      ctx.strokeRect(start.x, start.y, dx, dy);
+      ctx.strokeRect(x, y, w, h);
+      measure.textContent = Math.round(w) + ' × ' + Math.round(h);
+      measure.style.display = 'block';
+      measure.style.left = Math.max(4, Math.min(window.innerWidth - 74, x + w - 70)) + 'px';
+      measure.style.top = Math.max(4, Math.min(window.innerHeight - 26, y + h + 6)) + 'px';
     };
     const up = (event) => {
       if (!drawing || !start) return;
       event.preventDefault();
       event.stopPropagation();
       drawing = false;
-      ctx && ctx.clearRect(0, 0, canvas.width, canvas.height);
+      clearCanvas();
       if (dragged || tool === 'draw') {
         const x = Math.min(start.x, event.clientX);
         const y = Math.min(start.y, event.clientY);
@@ -1597,18 +1784,29 @@ function designPickerScript(webviewLabel: string): string {
           start = null;
           return;
         }
+        start = null;
+        return;
       }
       const el = targetAt(event.clientX, event.clientY);
       if (el) send(describe(el));
       start = null;
     };
+    const cancel = () => { drawing = false; dragged = false; start = null; clearCanvas(); if (tool === 'select' && lastTarget) showHover(lastTarget); };
+    const resize = () => { setCanvasSize(); if (tool === 'select' && lastTarget) showHover(lastTarget); };
+    const keydown = (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel(); } };
     window.addEventListener('pointermove', drag, true);
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', cancel, true);
+    window.addEventListener('keydown', keydown, true);
+    window.addEventListener('resize', resize, true);
     window.__comesadeDesignOff = () => {
       window.removeEventListener('pointermove', drag, true);
       window.removeEventListener('pointerdown', down, true);
       window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', cancel, true);
+      window.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('resize', resize, true);
       root.remove();
     };
   })();`;
@@ -1710,34 +1908,105 @@ async function handleComposerPaste(event: ClipboardEvent, input: HTMLTextAreaEle
 function renderComposerCaptures(): void {
   const host = document.querySelector<HTMLElement>('#composer-captures');
   if (!host) return;
-  const images = designPicks.filter((pick) => pick.image);
+  const images = designPicks.filter((pick): pick is DesignPick & { image: string } => Boolean(pick.image));
   host.hidden = images.length === 0;
   host.innerHTML = images.map((pick, index) => {
     const source = designPicks.indexOf(pick);
     const label = imagePickLabel(pick, index);
-    const imageSource = registerImageSource(pick.image!, label);
-    return `<span class="composer-capture" data-image-source="${imageSource}" title="Double-click to open ${escapeHtml(label)}"><img src="${escapeHtml(pick.image!)}" alt="${escapeHtml(label)}"><span class="composer-capture-label">${escapeHtml(label)}</span><button type="button" data-remove-pick="${source}" aria-label="Quitar captura">×</button></span>`;
+    const imageSource = registerImageSource(pick.image, label);
+    return `<span class="composer-capture" data-image-source="${imageSource}" title="Double-click to open ${escapeHtml(label)}"><img src="${escapeHtml(pick.image)}" alt="${escapeHtml(label)}"><span class="composer-capture-label">${escapeHtml(label)}</span><button type="button" data-remove-pick="${source}" aria-label="${escapeHtml(t('design.removeCapture'))}">${icons.close}</button></span>`;
   }).join('');
+}
+
+function activePreviewPanel(): BrowserPanel | LocalhostPanel | undefined {
+  if (!activeToolId) return undefined;
+  return browserPanels.get(activeToolId) ?? localhostPanels.get(activeToolId);
+}
+
+function effectivePreviewViewportMode(): PreviewViewportMode {
+  return designModeEnabled ? previewViewportMode : 'desktop';
+}
+
+function syncPreviewViewportControls(): void {
+  const hasPreview = Boolean(activePreviewPanel());
+  document.querySelectorAll<HTMLButtonElement>('[data-preview-viewport]').forEach((button) => {
+    const mode = button.dataset.previewViewport;
+    if (!isPreviewViewportMode(mode)) return;
+    const selected = mode === previewViewportMode;
+    const viewport = PREVIEW_VIEWPORTS[mode];
+    const label = t(viewport.labelKey);
+    const hint = t(viewport.hintKey);
+    button.classList.toggle('is-active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    button.setAttribute('aria-label', `${label} · ${hint}`);
+    button.title = hasPreview ? `${label} · ${hint}` : `${label} · ${t('chrome.noPreviews')}`;
+    button.disabled = !hasPreview;
+  });
+}
+
+function syncPreviewViewportFrameState(): void {
+  const mode = effectivePreviewViewportMode();
+  const panels = [...browserPanels.values(), ...localhostPanels.values()];
+  panels.forEach((panel) => {
+    const active = panel.id === activeToolId;
+    panel.frame.dataset.previewViewport = active ? mode : 'desktop';
+    panel.frame.classList.toggle('is-device-preview', active && mode !== 'desktop');
+  });
+}
+
+function setPreviewViewportMode(mode: PreviewViewportMode): void {
+  if (!activePreviewPanel()) {
+    showToast(t('chrome.noPreviews'), true);
+    return;
+  }
+  previewViewportMode = mode;
+  saveWorkspaceLayout({ previewViewportMode: mode });
+  syncPreviewViewportControls();
+  syncPreviewViewportFrameState();
+  scheduleWebviewSync();
 }
 
 function renderDesignToolbar(): void {
   const toggle = document.querySelector<HTMLButtonElement>('#design-mode-toggle');
   const toolbar = document.querySelector<HTMLElement>('#design-toolbar');
   const picks = document.querySelector<HTMLElement>('#design-picks');
+  const hint = document.querySelector<HTMLElement>('#design-mode-hint');
+  const count = document.querySelector<HTMLElement>('#design-selection-count');
+  const clear = document.querySelector<HTMLButtonElement>('#design-clear');
+  const toChat = document.querySelector<HTMLButtonElement>('#design-to-chat');
+  const selectedCount = designPicks.length;
   toggle?.classList.toggle('is-active', designModeEnabled);
+  toggle?.setAttribute('aria-pressed', String(designModeEnabled));
+  if (toggle) toggle.title = t('design.toggleHint');
   syncLayoutPickerButton();
   if (toolbar) toolbar.hidden = !designModeEnabled;
+  if (hint) hint.textContent = t(designTool === 'select' ? 'design.selectHint' : 'design.dragHint');
+  if (count) count.textContent = String(selectedCount);
+  if (clear) clear.disabled = selectedCount === 0;
+  if (toChat) toChat.disabled = selectedCount === 0;
   document.querySelectorAll<HTMLButtonElement>('[data-design-tool]').forEach((button) => {
-    button.classList.toggle('is-active', button.dataset.designTool === designTool);
+    const active = button.dataset.designTool === designTool;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
   });
+  syncPreviewViewportControls();
   if (picks) {
     picks.innerHTML = designPicks.length
       ? designPicks.map((pick, index) => {
-          const label = pick.image ? imagePickLabel(pick, index) : (pick.kind === 'draw' ? 'Captura' : (pick.component || pick.tag) + (pick.id ? '#' + pick.id : ''));
-          const thumb = pick.image ? `<img src="${escapeHtml(pick.image)}" alt="${escapeHtml(label)}">` : '';
-          return `<span class="design-pick">${thumb}${escapeHtml(label)}<button type="button" data-remove-pick="${index}" aria-label="Quitar">×</button></span>`;
+          const label = pick.image
+            ? imagePickLabel(pick, index)
+            : pick.kind === 'draw'
+              ? t('design.captureN', { n: index + 1 })
+              : (pick.component || `<${pick.tag}>`) + (pick.id ? '#' + pick.id : '');
+          const detail = pick.kind === 'draw'
+            ? `${pick.rect.w} × ${pick.rect.h}`
+            : `<${pick.tag}> · ${pick.rect.w} × ${pick.rect.h}`;
+          const thumb = pick.image
+            ? `<img src="${escapeHtml(pick.image)}" alt="${escapeHtml(label)}" loading="lazy">`
+            : `<span class="design-pick-placeholder" aria-hidden="true">${pick.kind === 'draw' ? icons.crop : icons.cursor}</span>`;
+          return `<article class="design-pick" role="listitem"><span class="design-pick-preview">${thumb}</span><span class="design-pick-copy"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></span><button class="design-pick-remove" type="button" data-remove-pick="${index}" aria-label="${escapeHtml(t('design.removeCapture'))}" title="${escapeHtml(t('design.removeCapture'))}">${icons.close}</button></article>`;
         }).join('')
-      : '<small>Arrastra una zona del preview para capturarla</small>';
+      : `<span class="design-picks-empty">${icons.crop}<span>${escapeHtml(t('design.selectionEmpty'))}</span></span>`;
   }
   renderComposerCaptures();
   renderAiContextBar();
@@ -1768,9 +2037,16 @@ async function setDesignMode(enabled: boolean): Promise<void> {
     await injectDesignPicker();
     showToast(t('toast.designHint'));
   } else {
+    const leavingDesign = layoutState.workLayout === 'design';
+    if (leavingDesign) {
+      layoutState.workLayout = 'browser';
+      layoutState.view = 'tools';
+      applyLayout();
+    }
     await injectDesignPicker();
   }
   renderDesignToolbar();
+  saveLayout();
   scheduleWebviewSync();
 }
 
@@ -1801,7 +2077,7 @@ async function completeDesignPick(payload: DesignPick): Promise<void> {
         dpr: payload.dpr || 1,
       });
     } catch (error) {
-      showToast(String(error), true);
+      showErrorToast(error);
     }
     await injectDesignPicker();
   }
@@ -1865,7 +2141,7 @@ function renderEditorTabs(): void {
   editorTabs.innerHTML = openFileTabs.map((tab) => {
     const active = Boolean(openFilePath && openFileRoot && sameFsPath(tab.root, openFileRoot) && relativePathKey(tab.path) === relativePathKey(openFilePath));
     const name = tab.path.split('/').pop() ?? tab.path;
-    return '<button class="editor-tab ' + (active ? 'editor-tab-active' : '') + '" data-file-tab="' + escapeHtml(tab.path) + '" data-file-root="' + escapeHtml(tab.root) + '" type="button" role="tab" aria-selected="' + String(active) + '"><span>' + escapeHtml(name) + (tab.dirty ? '<i aria-label="Unsaved">•</i>' : '') + '</span><span class="editor-tab-close" data-close-file-tab="' + escapeHtml(tab.path) + '" data-file-root="' + escapeHtml(tab.root) + '" title="Cerrar archivo" aria-label="Cerrar archivo">' + icons.close + '</span></button>';
+    return '<button class="editor-tab ' + (active ? 'editor-tab-active' : '') + '" data-file-tab="' + escapeHtml(tab.path) + '" data-file-root="' + escapeHtml(tab.root) + '" type="button" role="tab" aria-selected="' + String(active) + '"><span>' + escapeHtml(name) + (tab.dirty ? '<i aria-label="' + escapeHtml(t('chrome.unsaved')) + '">•</i>' : '') + '</span><span class="editor-tab-close" data-close-file-tab="' + escapeHtml(tab.path) + '" data-file-root="' + escapeHtml(tab.root) + '" title="' + escapeHtml(t('chrome.closeFile')) + '" aria-label="' + escapeHtml(t('chrome.closeFile')) + '">' + icons.close + '</span></button>';
   }).join('');
 }
 
@@ -1965,6 +2241,7 @@ const activeSessionLabel = document.querySelector<HTMLElement>('#active-session-
 const appVersionLabel = document.querySelector<HTMLElement>('#app-version-label')!;
 const modalRoot = document.querySelector<HTMLDivElement>('#modal-root')!;
 const accountMenuRoot = document.querySelector<HTMLDivElement>('#account-menu-root')!;
+const notificationsMenuRoot = document.querySelector<HTMLDivElement>('#notifications-menu-root')!;
 const toast = document.querySelector<HTMLDivElement>('#toast')!;
 const githubAuthGate = document.querySelector<HTMLElement>('#github-auth-gate')!;
 const githubAuthEyebrow = document.querySelector<HTMLElement>('#github-auth-eyebrow')!;
@@ -2043,8 +2320,10 @@ let providerKeyForm: string | null = null;
 let providerOauthCode: string | null = null;
 let nativeAgentMessages: AgentChatMessage[] = [];
 let nativeAgentRequestId: string | null = null;
+let nativeAgentTurnWorkspaceId: string | null = null;
 let nativeAgentBusy = false;
 let nativeAgentStreamPre: HTMLPreElement | null = null;
+let agentTokenUsage: AgentTokenUsage | null = null;
 let agentTurnStartedAt = 0;
 let agentThoughtTimer: number | null = null;
 let agentThoughtLine: HTMLDivElement | null = null;
@@ -2058,10 +2337,13 @@ let agentTurnContentBaseline = new Map<string, string>();
 let agentTurnDiffBaseline = new Map<string, GitFileDiffStat>();
 let providerUsage: Record<string, UsageSnapshot> = {};
 let selectedAgentChoices: Record<string, { model: string; effort: string }> = {};
+let selectedAgentPermissions: Record<string, AgentPermissionMode> = {};
 let closeModelPickerListeners: (() => void) | null = null;
 let modelPickerSlot: 'a' | 'b' = 'a';
 let dualChatLeftRatio = 0.5;
 let closeAccountPickerListeners: (() => void) | null = null;
+let closeAgentMemoryPanelListeners: (() => void) | null = null;
+let closeAgentPermissionsPickerListeners: (() => void) | null = null;
 let closeSttLangPickerListeners: (() => void) | null = null;
 let closeSlashMenuListeners: (() => void) | null = null;
 let slashMenuState: { panel: 'a' | 'b'; selected: number; commands: SlashCommand[] } | null = null;
@@ -2074,13 +2356,35 @@ type AgentModelOption = {
   defaultEffort: string;
 };
 
-const EFFORT_LABELS: Record<string, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'xHigh',
-  max: 'Max',
-  ultra: 'Ultra',
+const AGENT_PERMISSION_MODES: ReadonlyArray<{
+  id: AgentPermissionMode;
+  labelKey: string;
+  hintKey: string;
+}> = [
+  { id: 'read-only', labelKey: 'permission.readOnly', hintKey: 'permission.readOnlyHint' },
+  { id: 'ask', labelKey: 'permission.askForApproval', hintKey: 'permission.askForApprovalHint' },
+  { id: 'approve', labelKey: 'permission.approveForMe', hintKey: 'permission.approveForMeHint' },
+  { id: 'full', labelKey: 'permission.fullAccess', hintKey: 'permission.fullAccessHint' },
+];
+
+const CLI_AGENT_IDS = new Set(['cursor', 'droid', 'aider', 'kilo', 'pi', 'opencode', 'antigravity']);
+
+function isAgentPermissionMode(value: unknown): value is AgentPermissionMode {
+  return value === 'read-only' || value === 'ask' || value === 'approve' || value === 'full';
+}
+
+function normalizeAgentPermissionMode(value: unknown): AgentPermissionMode | null {
+  if (value === 'workspace') return 'approve';
+  return isAgentPermissionMode(value) ? value : null;
+}
+
+const EFFORT_LABEL_KEYS: Record<string, string> = {
+  low: 'model.effort.low',
+  medium: 'model.effort.medium',
+  high: 'model.effort.high',
+  xhigh: 'model.effort.xhigh',
+  max: 'model.effort.max',
+  ultra: 'model.effort.ultra',
 };
 
 const EFFORTS_FULL = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
@@ -2231,7 +2535,8 @@ function modelsForProvider(account: ProviderStatus | undefined): AgentModelOptio
 }
 
 function effortLabel(effort: string): string {
-  return EFFORT_LABELS[effort] ?? effort;
+  const key = EFFORT_LABEL_KEYS[effort];
+  return key ? t(key) : effort;
 }
 
 const MODEL_HINT_KEYS: Record<string, string> = {
@@ -2315,6 +2620,124 @@ function loadSelectedAgentModels(): void {
     }
   }
   selectedAgentChoices = next;
+}
+
+function permissionModeForProvider(provider: string): AgentPermissionMode {
+  const stored = provider ? selectedAgentPermissions[provider] : undefined;
+  return isAgentPermissionMode(stored) ? stored : 'full';
+}
+
+function permissionModeEntry(mode: AgentPermissionMode) {
+  return AGENT_PERMISSION_MODES.find((item) => item.id === mode) ?? AGENT_PERMISSION_MODES[AGENT_PERMISSION_MODES.length - 1];
+}
+
+function persistSelectedAgentPermissions(): void {
+  setStoredValue(storageKeys.agentPermissions, JSON.stringify(selectedAgentPermissions));
+}
+
+function loadSelectedAgentPermissions(): void {
+  const stored = readJson<Record<string, unknown>>(storageKeys.agentPermissions, {});
+  const next: Record<string, AgentPermissionMode> = {};
+  if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+    for (const [provider, value] of Object.entries(stored)) {
+      const mode = normalizeAgentPermissionMode(value);
+      if (mode) next[provider] = mode;
+    }
+  }
+  selectedAgentPermissions = next;
+}
+
+function setAgentPermissionMode(provider: string, mode: AgentPermissionMode): void {
+  if (!provider) return;
+  selectedAgentPermissions[provider] = mode;
+  persistSelectedAgentPermissions();
+  renderComposerPermissions('a');
+  renderComposerPermissions('b');
+}
+
+function renderComposerPermissions(slot: 'a' | 'b' = 'a'): void {
+  const suffix = slot === 'b' ? '-b' : '';
+  const provider = document.querySelector<HTMLSelectElement>(`#native-agent-provider${suffix}`)?.value ?? '';
+  const button = document.querySelector<HTMLButtonElement>(`#composer-permissions${suffix}`);
+  const label = document.querySelector<HTMLElement>(`#composer-permissions-label${suffix}`);
+  if (!button || !label) return;
+  const mode = permissionModeForProvider(provider);
+  const entry = permissionModeEntry(mode);
+  const modeLabel = t(entry.labelKey);
+  label.textContent = modeLabel;
+  button.dataset.permissionMode = mode;
+  button.classList.toggle('is-restricted', mode !== 'full');
+  button.title = t('permission.buttonHint', { mode: modeLabel });
+  button.setAttribute('aria-label', button.title);
+}
+
+function closeAgentPermissionsPicker(): void {
+  document.querySelector<HTMLElement>('.agent-permissions-menu')?.remove();
+  document.querySelector('#composer-permissions')?.setAttribute('aria-expanded', 'false');
+  document.querySelector('#composer-permissions-b')?.setAttribute('aria-expanded', 'false');
+  closeAgentPermissionsPickerListeners?.();
+  closeAgentPermissionsPickerListeners = null;
+}
+
+function openAgentPermissionsPicker(slot: 'a' | 'b' = 'a'): void {
+  const suffix = slot === 'b' ? '-b' : '';
+  const button = document.querySelector<HTMLButtonElement>(`#composer-permissions${suffix}`);
+  const provider = document.querySelector<HTMLSelectElement>(`#native-agent-provider${suffix}`);
+  if (!button || !provider) return;
+  closeModelPicker();
+  closeAccountPicker();
+  closeAgentPermissionsPicker();
+  closeSttLangPicker();
+  closeSlashCommandMenu();
+  closeAgentMemoryPanel();
+  closeAgentPermissionsPicker();
+  const selected = permissionModeForProvider(provider.value);
+  const isCli = CLI_AGENT_IDS.has(provider.value);
+  const menu = document.createElement('div');
+  menu.className = 'file-context-menu agent-permissions-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `
+    <div class="agent-permissions-menu-head">
+      <strong>${escapeHtml(t('permission.title'))}</strong>
+      <small>${escapeHtml(t('permission.copy'))}</small>
+    </div>
+    <div class="agent-permissions-menu-list">
+      ${AGENT_PERMISSION_MODES.map((item) => {
+        const current = item.id === selected;
+        return `<button type="button" class="agent-permission-item${current ? ' is-selected' : ''}" data-permission-mode="${item.id}" role="menuitemradio" aria-checked="${current ? 'true' : 'false'}"><span class="agent-permission-item-copy"><strong>${escapeHtml(t(item.labelKey))}</strong><small>${escapeHtml(t(item.hintKey))}</small></span><span class="agent-permission-check" aria-hidden="true">${current ? '✓' : ''}</span></button>`;
+      }).join('')}
+    </div>
+    ${isCli ? `<p class="agent-permissions-cli-note">${escapeHtml(t('permission.cliNote'))}</p>` : ''}`;
+  document.body.appendChild(menu);
+  const rect = button.getBoundingClientRect();
+  const width = Math.min(340, window.innerWidth - 24);
+  menu.style.width = `${width}px`;
+  menu.style.maxHeight = `${Math.max(260, Math.min(420, window.innerHeight - 24))}px`;
+  const height = Math.min(menu.scrollHeight, Number.parseInt(menu.style.maxHeight, 10));
+  menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`;
+  menu.style.top = `${Math.max(12, rect.top - height - 8)}px`;
+  if (menu.getBoundingClientRect().top < 8) menu.style.top = `${Math.min(window.innerHeight - 12 - menu.offsetHeight, rect.bottom + 8)}px`;
+  button.setAttribute('aria-expanded', 'true');
+  const outside = (event: PointerEvent): void => {
+    if (menu.contains(event.target as Node) || button.contains(event.target as Node)) return;
+    closeAgentPermissionsPicker();
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') closeAgentPermissionsPicker();
+  };
+  document.addEventListener('pointerdown', outside);
+  document.addEventListener('keydown', onKey);
+  closeAgentPermissionsPickerListeners = () => {
+    document.removeEventListener('pointerdown', outside);
+    document.removeEventListener('keydown', onKey);
+  };
+  menu.addEventListener('click', (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-permission-mode]');
+    const mode = target?.dataset.permissionMode;
+    if (!target || !isAgentPermissionMode(mode)) return;
+    setAgentPermissionMode(provider.value, mode);
+    closeAgentPermissionsPicker();
+  });
 }
 
 function renderComposerModel(): void {
@@ -2430,6 +2853,8 @@ function syncSecondComposerProviders(): void {
   else if (source.value) dest.value = source.value;
   renderComposerAccountB();
   renderComposerModelB();
+  renderComposerPermissions('a');
+  renderComposerPermissions('b');
 }
 
 function closeAccountPicker(): void {
@@ -2449,7 +2874,10 @@ function syncSttLangButton(): void {
   const select = document.querySelector<HTMLSelectElement>('#composer-stt-lang');
   const label = document.querySelector('#composer-stt-lang-label');
   if (!select || !label) return;
-  label.textContent = sttLanguageLabel(select.value || 'auto');
+  const selected = select.value || 'auto';
+  if (selected === 'auto') label.setAttribute('data-i18n', 'lang.autoShort');
+  else label.removeAttribute('data-i18n');
+  label.textContent = sttLanguageLabel(selected);
 }
 
 function closeSttLangPicker(): void {
@@ -2533,7 +2961,9 @@ function openAccountPicker(slot: 'a' | 'b' = 'a'): void {
   closeModelPicker();
   closeAccountPicker();
   closeSttLangPicker();
+  closeAgentPermissionsPicker();
   closeSlashCommandMenu();
+  closeAgentMemoryPanel();
   if (!connected.length) {
     void openAccountsModal();
     return;
@@ -2544,10 +2974,10 @@ function openAccountPicker(slot: 'a' | 'b' = 'a'): void {
   menu.innerHTML = [
     ...connected.map((account) => {
       const current = account.id === provider.value;
-      const detail = account.accountLabel || account.authMode || 'Conectada';
-      return `<button type="button" class="account-picker-item${current ? ' is-selected' : ''}" data-account-id="${escapeHtml(account.id)}" role="option" aria-selected="${current ? 'true' : 'false'}"><span><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(detail)}</small></span>${current ? '<em>ACTUAL</em>' : ''}</button>`;
+      const detail = account.accountLabel || account.authMode || t('settings.connected');
+      return `<button type="button" class="account-picker-item${current ? ' is-selected' : ''}" data-account-id="${escapeHtml(account.id)}" role="option" aria-selected="${current ? 'true' : 'false'}"><span><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(detail)}</small></span>${current ? `<em>${escapeHtml(t('chrome.splitCurrent'))}</em>` : ''}</button>`;
     }),
-    '<button type="button" class="account-picker-item account-picker-manage" data-manage-accounts="1"><span><strong>Administrar cuentas</strong><small>Conectar o desconectar proveedores</small></span></button>',
+    `<button type="button" class="account-picker-item account-picker-manage" data-manage-accounts="1"><span><strong>${escapeHtml(t('composer.manageAccounts'))}</strong><small>${escapeHtml(t('composer.manageAccountsHint'))}</small></span></button>`,
   ].join('');
   document.body.appendChild(menu);
   const rect = button.getBoundingClientRect();
@@ -2587,6 +3017,36 @@ function closeModelPicker(): void {
   document.querySelector('#native-agent-model-b')?.setAttribute('aria-expanded', 'false');
   closeModelPickerListeners?.();
   closeModelPickerListeners = null;
+}
+
+type OpenComposerPicker =
+  | { kind: 'account' | 'model' | 'permissions'; slot: 'a' | 'b' }
+  | { kind: 'stt' };
+
+function captureOpenComposerPicker(): OpenComposerPicker | null {
+  if (document.querySelector('.account-picker-menu')) {
+    return {
+      kind: 'account',
+      slot: document.querySelector<HTMLButtonElement>('#composer-account-b[aria-expanded="true"]') ? 'b' : 'a',
+    };
+  }
+  if (document.querySelector('.model-picker-menu')) return { kind: 'model', slot: modelPickerSlot };
+  if (document.querySelector('.agent-permissions-menu')) {
+    return {
+      kind: 'permissions',
+      slot: document.querySelector<HTMLButtonElement>('#composer-permissions-b[aria-expanded="true"]') ? 'b' : 'a',
+    };
+  }
+  if (document.querySelector('.stt-lang-menu')) return { kind: 'stt' };
+  return null;
+}
+
+function restoreOpenComposerPicker(picker: OpenComposerPicker | null): void {
+  if (!picker) return;
+  if (picker.kind === 'account') openAccountPicker(picker.slot);
+  else if (picker.kind === 'model') openModelPicker(picker.slot);
+  else if (picker.kind === 'permissions') openAgentPermissionsPicker(picker.slot);
+  else openSttLangPicker();
 }
 
 function closeSlashCommandMenu(): void {
@@ -2640,6 +3100,7 @@ function openSlashCommandMenu(panel: 'a' | 'b', commands: SlashCommand[], select
   closeModelPicker();
   closeAccountPicker();
   closeSttLangPicker();
+  closeAgentPermissionsPicker();
   closeSlashCommandMenu();
   slashMenuState = { panel, selected: Math.max(0, Math.min(selected, commands.length - 1)), commands };
   const menu = document.createElement('div');
@@ -2811,11 +3272,15 @@ async function runLocalSlashCommand(parsed: ParsedSlashCommand, panel: 'a' | 'b'
       if (panel === 'b') {
         nativeAgentMessagesB = [];
         nativeAgentStreamPreB = null;
+        agentTokenUsageB = null;
+        renderAgentTokenUsage('b', agentTokenUsageB, false);
         document.querySelector('#native-agent-log-b')?.replaceChildren();
         document.querySelector('#native-agent-panel-b')?.classList.remove('has-thread');
       } else {
         nativeAgentMessages = [];
         nativeAgentStreamPre = null;
+        agentTokenUsage = null;
+        renderAgentTokenUsage('a', agentTokenUsage, false);
         nativeAgentLog.replaceChildren();
         document.querySelector('#native-agent-panel')?.classList.remove('has-thread');
         document.querySelector<HTMLElement>('#agent-chat-hint')?.removeAttribute('hidden');
@@ -2878,6 +3343,7 @@ function openModelPicker(slot: 'a' | 'b' = 'a'): void {
   closeAccountPicker();
   closeSttLangPicker();
   closeSlashCommandMenu();
+  closeAgentMemoryPanel();
   closeModelPicker();
   const menu = document.createElement('div');
   menu.className = 'file-context-menu model-picker-menu';
@@ -2996,6 +3462,28 @@ function formatTokenWindow(tokens: number): string {
     return Number.isInteger(thousands) ? `${thousands}k` : `${thousands.toFixed(1)}k`;
   }
   return String(Math.max(0, Math.round(tokens)));
+}
+
+function formatAgentTokenCount(tokens: number): string {
+  return new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 0 }).format(Math.max(0, Math.round(tokens)));
+}
+
+function renderAgentTokenUsage(slot: 'a' | 'b', usage: AgentTokenUsage | null, active: boolean): void {
+  const suffix = slot === 'b' ? '-b' : '';
+  const chip = document.querySelector<HTMLElement>(`#composer-agent-tokens${suffix}`);
+  if (!chip) return;
+  const visible = active || Boolean(usage);
+  chip.hidden = !visible;
+  if (!visible) return;
+  chip.classList.toggle('is-pending', !usage);
+  if (!usage) {
+    chip.textContent = t('chrome.agentTokensPending');
+    chip.title = t('chrome.agentTokensPendingHint');
+    return;
+  }
+  const tokens = formatAgentTokenCount(usage.totalTokens);
+  chip.textContent = t('chrome.agentTokens', { tokens });
+  chip.title = t('chrome.agentTokensHint', { tokens });
 }
 
 /** Estimación local de tokens del hilo (≈ chars/4), más el borrador del compositor. */
@@ -3855,6 +4343,7 @@ async function handleAccountMenuAction(action: string): Promise<void> {
 }
 
 function toggleAccountMenu(): void {
+  if (notificationsMenuRoot.innerHTML) closeNotificationMenu();
   if (accountMenuRoot.innerHTML) {
     closeAccountMenu();
     return;
@@ -3961,6 +4450,8 @@ function renderProviderAccountCard(): void {
   renderComposerModel();
   renderComposerAccountB();
   renderComposerModelB();
+  renderComposerPermissions('a');
+  renderComposerPermissions('b');
   renderAsaOverview();
 }
 
@@ -4040,7 +4531,7 @@ async function connectProviderAccount(provider: string, mode?: string): Promise<
     await pollProviderOAuth(provider, start.intervalMs ?? 1000, start.expiresIn);
     providerOauthCode = null;
   } catch (error) {
-    showToast(error instanceof Error ? error.message : String(error), true);
+    showErrorToast(error);
   } finally {
     providerOauthBusy = null;
     await refreshProviderAccounts();
@@ -4160,7 +4651,7 @@ async function openAccountsModal(): Promise<void> {
     const provider = form.dataset.saveKey;
     const value = new FormData(form).get('api-key');
     if (!provider || typeof value !== 'string' || !value.trim()) return;
-    void saveProviderApiKey(provider, value.trim()).catch((error) => showToast(String(error), true));
+    void saveProviderApiKey(provider, value.trim()).catch((error) => showErrorToast(error));
   });
 }
 
@@ -4176,6 +4667,12 @@ function toolStepTitle(name: string, input: string): string {
   const relative = relativeFromToolInput(input);
   const file = relative?.split(/[\\/]/).pop();
   const key = name.toLowerCase();
+  if (/workspace_info/.test(key)) return t('chrome.inspectingWorkspace');
+  if (/(git_status|git_diff|git_branches)/.test(key)) return t('chrome.inspectingGit');
+  if (/start_process/.test(key)) return t('chrome.startingProcess');
+  if (/(create_file|create_directory)/.test(key)) return t('chrome.creatingPath', { file: file || relative || t('chrome.workspace') });
+  if (/(rename_path|move_path)/.test(key)) return t('chrome.organizingPath', { file: file || relative || t('chrome.workspace') });
+  if (/delete_path/.test(key)) return t('chrome.deletingPath', { file: file || relative || t('chrome.workspace') });
   if (/(grep|search|glob|find)/.test(key)) return file ? t('chrome.exploringFile', { file }) : t('chrome.exploring');
   if (/(read|cat|open)/.test(key)) return file ? t('chrome.readingFile', { file }) : t('chrome.reading');
   if (/(write|edit|patch|apply)/.test(key)) return file ? t('chrome.editingFile', { file }) : t('chrome.editing');
@@ -4419,7 +4916,18 @@ function appendAgentFilesChanged(files: GitFileDiffStat[]): void {
     const del = Number(file.deletions ?? 0);
     return `<li><button type="button" class="agent-files-path" data-agent-file-path="${escapeHtml(file.path)}" title="${escapeHtml(file.path)}"><span>${escapeHtml(file.path)}</span><span class="agent-files-counts"><b class="stat-add">+${add}</b><b class="stat-delete">−${del}</b></span></button><button type="button" class="agent-files-review agent-files-review-file" data-agent-review-path="${escapeHtml(file.path)}">${escapeHtml(t('chrome.review'))}</button></li>`;
   }).join('');
-  line.innerHTML = `<div class="agent-files-changed"><header><div class="agent-files-changed-heading"><strong>${escapeHtml(title)}</strong><span class="agent-files-totals"><b class="stat-add">+${additions}</b><b class="stat-delete">−${deletions}</b></span></div><button type="button" class="agent-files-review" data-agent-review-all="1">${escapeHtml(t('chrome.review'))}</button></header><ul>${rows}</ul></div>`;
+  const filesListId = 'agent-files-changed-list';
+  line.innerHTML = `<div class="agent-files-changed"><header><button type="button" class="agent-files-summary" data-agent-files-toggle="1" aria-expanded="false" aria-controls="${filesListId}" title="${escapeHtml(t('chrome.expandFilesChanged'))}"><span class="agent-files-icon" aria-hidden="true">${icons.file}</span><span class="agent-files-changed-heading"><strong>${escapeHtml(title)}</strong><span class="agent-files-totals"><b class="stat-add">+${additions}</b><b class="stat-delete">−${deletions}</b></span></span></button><button type="button" class="agent-files-review" data-agent-review-all="1">${escapeHtml(t('chrome.review'))}</button></header><ul id="${filesListId}" hidden>${rows}</ul></div>`;
+  const filesSummary = line.querySelector<HTMLButtonElement>('[data-agent-files-toggle]');
+  const filesPanel = line.querySelector<HTMLElement>('.agent-files-changed');
+  const filesList = line.querySelector<HTMLUListElement>('#agent-files-changed-list');
+  filesSummary?.addEventListener('click', () => {
+    const expanded = filesSummary.getAttribute('aria-expanded') !== 'true';
+    filesSummary.setAttribute('aria-expanded', String(expanded));
+    filesSummary.title = t(expanded ? 'chrome.collapseFilesChanged' : 'chrome.expandFilesChanged');
+    filesPanel?.classList.toggle('is-expanded', expanded);
+    if (filesList) filesList.hidden = !expanded;
+  });
   const openReview = (path?: string) => {
     inspectorCollapsed = false;
     layoutState.inspectorCollapsed = false;
@@ -4560,15 +5068,20 @@ async function sendNativeAgentMessage(): Promise<void> {
     index === nativeAgentMessages.length - 1 && message.role === 'user'
       ? {
           role: 'user' as const,
-          content: forwardSlash ? message.content : `${composerEditorContext()}\n\n${message.content}`,
+          content: forwardSlash ? message.content : `${composerSendContextPrefix()}\n\n${message.content}`,
           images: message.images,
         }
       : message
   ));
   await captureAgentTurnBaselines();
   setNativeAgentBusy(true);
+  const requestId = `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  nativeAgentRequestId = requestId;
+  nativeAgentTurnWorkspaceId = activeWorkspaceId;
+  agentTokenUsage = null;
+  renderAgentTokenUsage('a', agentTokenUsage, true);
   try {
-    nativeAgentRequestId = await invoke<string>('agent_chat_start', {
+    const startedRequestId = await invoke<string>('agent_chat_start', {
       request: {
         provider,
         workspacePath: workspace.path,
@@ -4581,10 +5094,18 @@ async function sendNativeAgentMessage(): Promise<void> {
           const selected = selectedModelChoice(providerAccounts.find((item) => item.id === provider));
           return selected && selected.option.efforts.length ? selected.effort : null;
         })(),
-        requestId: `ui-${Date.now()}`,
+        permissionMode: permissionModeForProvider(provider),
+        requestId,
       },
     });
+    if (nativeAgentRequestId === requestId) nativeAgentRequestId = startedRequestId || requestId;
   } catch (error) {
+    if (nativeAgentRequestId === requestId) {
+      nativeAgentRequestId = null;
+      nativeAgentTurnWorkspaceId = null;
+    }
+    agentTokenUsage = null;
+    renderAgentTokenUsage('a', agentTokenUsage, false);
     setNativeAgentBusy(false);
     appendNativeAgentLine('error', String(error));
   }
@@ -4619,16 +5140,21 @@ async function sendNativeAgentMessageB(): Promise<void> {
   if (cancel) cancel.hidden = false;
   input.disabled = true;
   document.querySelector('#native-agent-panel-b')?.classList.add('is-busy');
+  const requestId = `ui-b-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  nativeAgentRequestIdB = requestId;
+  nativeAgentTurnWorkspaceIdB = activeWorkspaceId;
+  agentTokenUsageB = null;
+  renderAgentTokenUsage('b', agentTokenUsageB, true);
   const contextualMessages = nativeAgentMessagesB.map((message, index) => (
     index === nativeAgentMessagesB.length - 1 && message.role === 'user'
       ? {
           role: 'user' as const,
-          content: forwardSlash ? message.content : `${composerEditorContext()}\n\n${message.content}`,
+          content: forwardSlash ? message.content : `${composerSendContextPrefix()}\n\n${message.content}`,
         }
       : message
   ));
   try {
-    nativeAgentRequestIdB = await invoke<string>('agent_chat_start', {
+    const startedRequestId = await invoke<string>('agent_chat_start', {
       request: {
         provider,
         workspacePath: workspace.path,
@@ -4641,10 +5167,18 @@ async function sendNativeAgentMessageB(): Promise<void> {
           const selected = selectedModelChoice(providerAccounts.find((item) => item.id === provider));
           return selected && selected.option.efforts.length ? selected.effort : null;
         })(),
-        requestId: `ui-b-${Date.now()}`,
+        permissionMode: permissionModeForProvider(provider),
+        requestId,
       },
     });
+    if (nativeAgentRequestIdB === requestId) nativeAgentRequestIdB = startedRequestId || requestId;
   } catch (error) {
+    if (nativeAgentRequestIdB === requestId) {
+      nativeAgentRequestIdB = null;
+      nativeAgentTurnWorkspaceIdB = null;
+    }
+    agentTokenUsageB = null;
+    renderAgentTokenUsage('b', agentTokenUsageB, false);
     nativeAgentBusyB = false;
     document.querySelector<HTMLButtonElement>('#native-agent-send-b')?.removeAttribute('disabled');
     const cancelBtn = document.querySelector<HTMLButtonElement>('#native-agent-cancel-b');
@@ -4655,8 +5189,19 @@ async function sendNativeAgentMessageB(): Promise<void> {
   }
 }
 
+function handleAgentTokenUsage(payload: AgentTokenUsage): void {
+  if (nativeAgentRequestIdB === payload.requestId) {
+    agentTokenUsageB = payload;
+    renderAgentTokenUsage('b', agentTokenUsageB, true);
+    return;
+  }
+  if (nativeAgentRequestId !== payload.requestId) return;
+  agentTokenUsage = payload;
+  renderAgentTokenUsage('a', agentTokenUsage, true);
+}
+
 function handleAgentDelta(payload: { requestId: string; text: string }): void {
-  if (nativeAgentRequestIdB && payload.requestId === nativeAgentRequestIdB) {
+  if (nativeAgentRequestIdB === payload.requestId) {
     const last = nativeAgentMessagesB[nativeAgentMessagesB.length - 1];
     if (last?.role === 'assistant') last.content += payload.text;
     else nativeAgentMessagesB.push({ role: 'assistant', content: payload.text });
@@ -4671,7 +5216,7 @@ function handleAgentDelta(payload: { requestId: string; text: string }): void {
     }
     return;
   }
-  if (nativeAgentRequestId && payload.requestId !== nativeAgentRequestId) return;
+  if (nativeAgentRequestId !== payload.requestId) return;
   settleAgentThought();
   setAgentPendingStep(false);
   const last = nativeAgentMessages[nativeAgentMessages.length - 1];
@@ -4698,8 +5243,8 @@ function relativeFromToolInput(input: string): string | null {
 }
 
 function handleAgentTool(payload: { requestId: string; name: string; input: string; output: string }): void {
-  const isB = Boolean(nativeAgentRequestIdB && payload.requestId === nativeAgentRequestIdB);
-  if (!isB && nativeAgentRequestId && payload.requestId !== nativeAgentRequestId) return;
+  const isB = nativeAgentRequestIdB === payload.requestId;
+  if (!isB && nativeAgentRequestId !== payload.requestId) return;
   settleAgentThought();
   setAgentPendingStep(false);
   const title = toolStepTitle(payload.name, payload.input);
@@ -4712,19 +5257,91 @@ function handleAgentTool(payload: { requestId: string; name: string; input: stri
       agentTurnContentBaseline.set(relativePathKey(relative), payload.output);
     }
   }
-  if (payload.name === 'write_file' && !payload.output.toLowerCase().startsWith('error')) {
+  const filesystemMutation = ['write_file', 'create_file', 'create_directory', 'rename_path', 'move_path', 'delete_path'].includes(payload.name);
+  if (filesystemMutation && !payload.output.toLowerCase().startsWith('error')) {
     const relative = relativeFromToolInput(payload.input);
     if (relative) {
       noteAgentTurnFileEdit(relative);
-      void openWorkspaceFile(relative, { fromAgent: true });
+      if (payload.name === 'write_file' || payload.name === 'create_file') {
+        void openWorkspaceFile(relative, { fromAgent: true });
+      }
     }
     void refreshFileTree();
     void refreshGitPanel();
   }
 }
 
+function appendAgentPermissionRequest(payload: NativeAgentPermissionRequest, isB: boolean): void {
+  const log = isB
+    ? document.querySelector<HTMLElement>('#native-agent-log-b')
+    : nativeAgentLog;
+  if (!log) return;
+  const alreadyVisible = Array.from(log.querySelectorAll<HTMLElement>('[data-permission-id]'))
+    .some((node) => node.dataset.permissionId === payload.permissionId);
+  if (alreadyVisible) return;
+  const line = document.createElement('div');
+  line.className = 'native-agent-line native-agent-line-permission';
+  line.dataset.permissionId = payload.permissionId;
+  line.dataset.permissionRequestId = payload.requestId;
+  line.innerHTML = `
+    <div class="agent-permission-request" role="group" aria-live="polite">
+      <strong>${escapeHtml(t('permission.requestTitle'))}</strong>
+      <p>${escapeHtml(payload.summary)}</p>
+      <div class="agent-permission-request-actions">
+        <button type="button" class="secondary-button agent-permission-deny" data-permission-decision="deny">${escapeHtml(t('permission.deny'))}</button>
+        <button type="button" class="primary-button agent-permission-allow" data-permission-decision="allow">${escapeHtml(t('permission.allow'))}</button>
+      </div>
+      <small class="agent-permission-request-status" role="status"></small>
+    </div>`;
+  log.appendChild(line);
+  if (isB) {
+    document.querySelector('#native-agent-panel-b')?.classList.add('has-thread');
+  } else {
+    showNativeAgentLog();
+  }
+  log.scrollTop = log.scrollHeight;
+  const status = line.querySelector<HTMLElement>('.agent-permission-request-status');
+  line.addEventListener('click', (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-permission-decision]');
+    const decision = target?.dataset.permissionDecision;
+    if (!target || (decision !== 'allow' && decision !== 'deny') || line.dataset.resolved === 'true') return;
+    const buttons = line.querySelectorAll<HTMLButtonElement>('[data-permission-decision]');
+    buttons.forEach((button) => { button.disabled = true; });
+    if (status) status.textContent = t('permission.sendingDecision');
+    void invoke('agent_permission_decide', {
+      permissionId: payload.permissionId,
+      allowed: decision === 'allow',
+    }).then(() => {
+      line.dataset.resolved = 'true';
+      line.classList.add(decision === 'allow' ? 'is-allowed' : 'is-denied');
+      if (status) status.textContent = decision === 'allow' ? t('permission.allowed') : t('permission.denied');
+    }).catch((error) => {
+      buttons.forEach((button) => { button.disabled = false; });
+      if (status) status.textContent = `${t('permission.decisionFailed')}: ${String(error)}`;
+    });
+  });
+}
+
+function handleAgentPermissionRequest(payload: NativeAgentPermissionRequest): void {
+  const isB = nativeAgentRequestIdB === payload.requestId;
+  if (!isB && nativeAgentRequestId !== payload.requestId) return;
+  appendAgentPermissionRequest(payload, isB);
+}
+
+function closeAgentPermissionRequests(requestId: string): void {
+  document.querySelectorAll<HTMLElement>('[data-permission-request-id]').forEach((line) => {
+    if (line.dataset.permissionRequestId !== requestId || line.dataset.resolved === 'true') return;
+    line.dataset.resolved = 'true';
+    line.classList.add('is-denied');
+    line.querySelectorAll<HTMLButtonElement>('[data-permission-decision]').forEach((button) => { button.disabled = true; });
+    const status = line.querySelector<HTMLElement>('.agent-permission-request-status');
+    if (status) status.textContent = t('permission.requestEnded');
+  });
+}
+
 function handleAgentDone(payload: { requestId: string; error: string | null }): void {
-  if (nativeAgentRequestIdB && payload.requestId === nativeAgentRequestIdB) {
+  closeAgentPermissionRequests(payload.requestId);
+  if (nativeAgentRequestIdB === payload.requestId) {
     if (payload.error) appendNativeAgentLineB('error', payload.error);
     nativeAgentStreamPreB?.closest('.native-agent-line')?.classList.remove('is-streaming');
     nativeAgentStreamPreB = null;
@@ -4735,10 +5352,14 @@ function handleAgentDone(payload: { requestId: string; error: string | null }): 
     const input = document.querySelector<HTMLTextAreaElement>('#native-agent-input-b');
     if (input) input.disabled = false;
     document.querySelector('#native-agent-panel-b')?.classList.remove('is-busy');
+    renderAgentTokenUsage('b', agentTokenUsageB, false);
+    if (!payload.error) autoCaptureAgentMemory('b', nativeAgentTurnWorkspaceIdB);
+    addAgentCompletionNotification(payload.requestId, payload.error);
     nativeAgentRequestIdB = null;
+    nativeAgentTurnWorkspaceIdB = null;
     return;
   }
-  if (nativeAgentRequestId && payload.requestId !== nativeAgentRequestId) return;
+  if (nativeAgentRequestId !== payload.requestId) return;
   if (payload.error) {
     appendNativeAgentLine('error', payload.error);
     // Fallback solo si el proveedor no emitio snapshot exhausted (p. ej. CLI).
@@ -4764,7 +5385,11 @@ function handleAgentDone(payload: { requestId: string; error: string | null }): 
   nativeAgentStreamPre?.closest('.native-agent-line')?.classList.remove('is-streaming');
   nativeAgentStreamPre = null;
   setNativeAgentBusy(false);
+  renderAgentTokenUsage('a', agentTokenUsage, false);
+  if (!payload.error) autoCaptureAgentMemory('a', nativeAgentTurnWorkspaceId);
+  addAgentCompletionNotification(payload.requestId, payload.error);
   nativeAgentRequestId = null;
+  nativeAgentTurnWorkspaceId = null;
   const finishFilesPanel = (): void => {
     void resolveRealAgentTurnDiffStats().then((files) => {
       if (files.length) appendAgentFilesChanged(files);
@@ -4775,9 +5400,12 @@ function handleAgentDone(payload: { requestId: string; error: string | null }): 
 }
 
 async function cancelNativeAgent(): Promise<void> {
-  if (nativeAgentRequestId) {
-    await invoke('agent_chat_cancel', { requestId: nativeAgentRequestId }).catch(() => undefined);
+  const requestId = nativeAgentRequestId;
+  nativeAgentRequestId = null;
+  if (requestId) {
+    await invoke('agent_chat_cancel', { requestId }).catch(() => undefined);
   }
+  nativeAgentTurnWorkspaceId = null;
   setNativeAgentBusy(false);
 }
 
@@ -5458,6 +6086,7 @@ type DesignPick = {
 };
 let designModeEnabled = false;
 let designTool: 'select' | 'draw' = 'draw';
+let previewViewportMode: PreviewViewportMode = 'desktop';
 let designPicks: DesignPick[] = [];
 let designBridgePort: number | null = null;
 let bootSplashActive = true;
@@ -5511,9 +6140,22 @@ let codeEditorHost: HTMLDivElement | null = null;
 let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 let diffEditorHost: HTMLDivElement | null = null;
 let diffModels: Monaco.editor.ITextModel[] = [];
-let noteSaveTimer: number | undefined;
+const noteSaveTimers = new Map<string, number>();
 let notesLoadedWorkspaceId: string | null | undefined;
 let toastTimer: number | undefined;
+type AgentNotification = {
+  id: string;
+  requestId: string;
+  titleKey: string;
+  messageKey?: string;
+  messageVars?: Record<string, string | number>;
+  message: string;
+  createdAt: number;
+  error: boolean;
+};
+let agentNotifications: AgentNotification[] = [];
+let hasUnreadAgentNotifications = false;
+let notificationAudioContext: AudioContext | null = null;
 let layoutSyncFrame: number | undefined;
 let renderFrame: number | undefined;
 let terminalHeight = 300;
@@ -5533,11 +6175,13 @@ const storageKeys = {
   workspaces: 'comesade.workspaces',
   activeWorkspace: 'comesade.active-workspace',
   notes: 'comesade.workspace.notes',
+  agentMemory: 'comesade.workspace.agent-memory',
   sessions: 'comesade.workspace.sessions',
   layout: 'comesade.workspace.layout',
   settings: 'comesade.settings',
   providerUsage: 'comesade.provider-usage',
   agentModels: 'comesade.agent-models',
+  agentPermissions: 'comesade.agent-permissions',
   comesSession: 'comesade.comes-session',
 };
 let nativePersistenceReady = false;
@@ -5573,9 +6217,22 @@ let appSettings: AppSettings = {
   microphoneId: '',
 };
 let languagePreferenceDraft: LanguagePreference | null = null;
+let refreshOpenSettingsI18n: (() => void) | null = null;
 
 type LayoutView = 'overview' | 'asa' | 'terminals' | 'tools';
 type WorkLayout = 'code' | 'cursor' | 'browser' | 'design' | 'dual';
+
+type PreviewViewportMode = 'mobile' | 'tablet' | 'desktop';
+
+const PREVIEW_VIEWPORTS: Record<PreviewViewportMode, { width: number; height: number; labelKey: string; hintKey: string }> = {
+  mobile: { width: 390, height: 844, labelKey: 'chrome.viewportMobile', hintKey: 'chrome.viewportMobileHint' },
+  tablet: { width: 768, height: 1024, labelKey: 'chrome.viewportTablet', hintKey: 'chrome.viewportTabletHint' },
+  desktop: { width: 0, height: 0, labelKey: 'chrome.viewportDesktop', hintKey: 'chrome.viewportDesktopHint' },
+};
+
+function isPreviewViewportMode(value: unknown): value is PreviewViewportMode {
+  return value === 'mobile' || value === 'tablet' || value === 'desktop';
+}
 
 function isLayoutView(value: unknown): value is LayoutView {
   return value === 'overview' || value === 'asa' || value === 'terminals' || value === 'tools';
@@ -5593,6 +6250,7 @@ type WorkspaceLayoutState = {
   terminalSizes?: Record<string, { width: number; height: number }>;
   browserUrl?: string | null;
   localhostUrl?: string | null;
+  previewViewportMode?: PreviewViewportMode;
 };
 
 type LayoutState = {
@@ -5667,6 +6325,140 @@ function showToast(message: string, error = false): void {
   toast.classList.add('toast-visible');
   if (toastTimer) window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove('toast-visible'), 3600);
+}
+
+function errorDetail(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return detail.replace(/^Error:\s*/i, '').trim() || t('common.error');
+}
+
+function showErrorToast(error: unknown, key = 'toast.operationFail', vars: Record<string, string | number> = {}): void {
+  showToast(t(key, { ...vars, error: errorDetail(error) }), true);
+}
+
+function renderNotificationBadge(): void {
+  const badge = document.querySelector<HTMLElement>('#titlebar-notifications-badge');
+  const button = document.querySelector<HTMLButtonElement>('#titlebar-notifications');
+  if (badge) badge.hidden = !hasUnreadAgentNotifications;
+  if (button) {
+    button.setAttribute('aria-label', hasUnreadAgentNotifications
+      ? `${t('notifications.open')} (${agentNotifications.length})`
+      : t('notifications.open'));
+  }
+}
+
+function formatNotificationTime(timestamp: number): string {
+  try {
+    return new Intl.DateTimeFormat(currentLocale(), { hour: 'numeric', minute: '2-digit' }).format(timestamp);
+  } catch {
+    return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+}
+
+function positionNotificationsMenu(): void {
+  const button = document.querySelector<HTMLButtonElement>('#titlebar-notifications');
+  const menu = document.querySelector<HTMLElement>('#notifications-menu');
+  if (!button || !menu) return;
+  const rect = button.getBoundingClientRect();
+  menu.style.top = `${Math.round(rect.bottom + 8)}px`;
+  menu.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
+}
+
+function bindNotificationMenuEvents(): void {
+  document.querySelector('#notifications-menu-backdrop')?.addEventListener('click', closeNotificationMenu);
+}
+
+function renderNotificationsMenu(): void {
+  const items = agentNotifications.length
+    ? agentNotifications.map((item) => `<article class="notification-item${item.error ? ' is-error' : ''}" role="listitem">
+          <span class="notification-item-icon">${item.error ? icons.close : icons.sparkle}</span>
+          <div class="notification-item-copy">
+            <strong>${escapeHtml(t(item.titleKey))}</strong>
+            <p>${escapeHtml(item.messageKey ? t(item.messageKey, item.messageVars ?? {}) : item.message)}</p>
+            <time datetime="${new Date(item.createdAt).toISOString()}">${escapeHtml(formatNotificationTime(item.createdAt))}</time>
+          </div>
+        </article>`).join('')
+    : `<p class="notifications-empty">${escapeHtml(t('notifications.empty'))}</p>`;
+  notificationsMenuRoot.innerHTML = `<div class="notifications-menu-backdrop" id="notifications-menu-backdrop"></div><section class="notifications-menu" id="notifications-menu" role="dialog" aria-modal="false" aria-labelledby="notifications-menu-title"><div class="notifications-menu-header"><div><span class="eyebrow">${escapeHtml(t('notifications.eyebrow'))}</span><h2 id="notifications-menu-title">${escapeHtml(t('notifications.title'))}</h2></div><span class="notifications-count">${agentNotifications.length}</span></div><div class="notifications-list" role="list">${items}</div></section>`;
+  positionNotificationsMenu();
+  bindNotificationMenuEvents();
+}
+
+function closeNotificationMenu(): void {
+  notificationsMenuRoot.innerHTML = '';
+  document.querySelector('#titlebar-notifications')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleNotificationMenu(): void {
+  if (notificationsMenuRoot.innerHTML) {
+    closeNotificationMenu();
+    return;
+  }
+  closeAccountMenu();
+  hasUnreadAgentNotifications = false;
+  renderNotificationBadge();
+  renderNotificationsMenu();
+  document.querySelector<HTMLButtonElement>('#titlebar-notifications')?.setAttribute('aria-expanded', 'true');
+}
+
+function playNotificationTone(context: AudioContext): void {
+  const start = context.currentTime + 0.01;
+  const gain = context.createGain();
+  const oscillator = context.createOscillator();
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(740, start);
+  oscillator.frequency.setValueAtTime(980, start + 0.09);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(0.075, start + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(start);
+  oscillator.stop(start + 0.23);
+}
+
+function playNotificationSound(): void {
+  try {
+    if (notificationAudioContext?.state === 'closed') notificationAudioContext = null;
+    const AudioContextConstructor = window.AudioContext
+      ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+    const context = notificationAudioContext ?? new AudioContextConstructor();
+    notificationAudioContext = context;
+    if (context.state === 'suspended') {
+      void context.resume().then(() => playNotificationTone(context)).catch(() => undefined);
+    } else {
+      playNotificationTone(context);
+    }
+  } catch {
+    // El sonido es una mejora opcional; nunca debe interrumpir el trabajo del agente.
+  }
+}
+
+function addAgentCompletionNotification(requestId: string, error: string | null): void {
+  if (agentNotifications.some((item) => item.requestId === requestId)) return;
+  const errorMessage = error?.trim() || null;
+  const workspaceName = getWorkspace()?.name?.trim() || t('chrome.workspace');
+  const titleKey = errorMessage ? 'notifications.agentFailed' : 'notifications.agentFinished';
+  const messageKey = errorMessage ? undefined : 'notifications.agentFinishedCopy';
+  const messageVars = errorMessage ? undefined : { workspace: workspaceName };
+  const title = t(titleKey);
+  const message = errorMessage ?? t(messageKey!, messageVars ?? {});
+  agentNotifications = [{
+    id: `${requestId}-${Date.now()}`,
+    requestId,
+    titleKey,
+    messageKey,
+    messageVars,
+    message,
+    createdAt: Date.now(),
+    error: Boolean(errorMessage),
+  }, ...agentNotifications].slice(0, 30);
+  hasUnreadAgentNotifications = true;
+  renderNotificationBadge();
+  showToast(`${title}: ${message}`, Boolean(errorMessage));
+  playNotificationSound();
+  if (notificationsMenuRoot.innerHTML) renderNotificationsMenu();
 }
 
 type AppDialogOptions = {
@@ -5778,23 +6570,20 @@ function pickGithubReleaseInstaller(assets: GithubReleaseAsset[]): GithubRelease
   if (runtimePlatform.os === 'macos') {
     const preferArm = (runtimePlatform.arch ?? '').includes('aarch64') || (runtimePlatform.arch ?? '').includes('arm');
     const preferIntel = (runtimePlatform.arch ?? '').includes('x86_64') || (runtimePlatform.arch ?? '') === 'x64';
-    const dmgAssets = assets.filter((asset) => lower(asset.name).endsWith('.dmg'));
+    const appZips = assets.filter((asset) => lower(asset.name).endsWith('.app.zip'));
     if (preferArm) {
-      return dmgAssets.find((asset) => asset.name === 'ComesADE-Setup-arm64.dmg')
-        ?? dmgAssets.find((asset) => lower(asset.name).includes('aarch64') || lower(asset.name).includes('arm64'))
-        ?? dmgAssets.find((asset) => asset.name === 'ComesADE-Setup.dmg')
-        ?? dmgAssets[0];
+      return appZips.find((asset) => asset.name === 'ComesADE-arm64.app.zip')
+        ?? appZips.find((asset) => lower(asset.name).includes('arm64') || lower(asset.name).includes('aarch64'))
+        ?? appZips[0];
     }
     if (preferIntel) {
-      return dmgAssets.find((asset) => asset.name === 'ComesADE-Setup-x64.dmg')
-        ?? dmgAssets.find((asset) => lower(asset.name).includes('x86_64') || lower(asset.name).includes('x64'))
-        ?? dmgAssets.find((asset) => asset.name === 'ComesADE-Setup.dmg')
-        ?? dmgAssets[0];
+      return appZips.find((asset) => asset.name === 'ComesADE-x64.app.zip')
+        ?? appZips.find((asset) => lower(asset.name).includes('x64') || lower(asset.name).includes('x86_64'))
+        ?? appZips[0];
     }
-    return dmgAssets.find((asset) => asset.name === 'ComesADE-Setup-arm64.dmg')
-      ?? dmgAssets.find((asset) => asset.name === 'ComesADE-Setup.dmg')
-      ?? dmgAssets[0]
-      ?? assets.find((asset) => lower(asset.name).endsWith('.pkg'));
+    return appZips.find((asset) => asset.name === 'ComesADE-arm64.app.zip')
+      ?? appZips[0]
+      ?? assets.find((asset) => lower(asset.name).endsWith('.dmg'));
   }
 
   return assets.find((asset) => asset.name === 'ComesADE-Setup.exe')
@@ -5997,7 +6786,7 @@ async function installAppUpdate(): Promise<void> {
   const update = availableAppUpdate;
   if (!update || appUpdateInstalling) return;
   if (isGithubReleaseUpdate(update)) {
-    const canInstallLocally = /\.(exe|msi|dmg|pkg)(\?|$)/i.test(update.downloadUrl);
+    const canInstallLocally = /\.(exe|msi|dmg|pkg|app\.zip|zip)(\?|$)/i.test(update.downloadUrl);
     if (!canInstallLocally) {
       appUpdateInstalling = true;
       renderUpdateButton();
@@ -6049,7 +6838,7 @@ async function installAppUpdate(): Promise<void> {
       appUpdateInstalling = false;
       renderUpdateButton();
       updateInstallProgress(t('chrome.updateInstalledRestarting'));
-      const isMacPackage = /\.(dmg|pkg)(\?|$)/i.test(update.downloadUrl);
+      const isMacPackage = /\.(dmg|pkg|app\.zip|zip)(\?|$)/i.test(update.downloadUrl);
       showToast(t(isMacPackage ? 'toast.updateMacOpened' : 'toast.updateInstallingNow'));
     } catch (error) {
       appUpdateInstalling = false;
@@ -6203,19 +6992,23 @@ function handleWorkspaceFileChange(payload: WorkspaceFileChange): void {
 
 async function activateWorkspace(workspace: WorkspaceInfo, enterAfter = true): Promise<void> {
   try {
-    if (!(await ensureWorkspaceHasRepository(workspace))) {
+    const switchingWorkspace = activeWorkspaceId !== workspace.id;
+    // The current workspace is already registered and must remain reopenable
+    // from the main menu even if its optional GitHub link is missing.
+    if (switchingWorkspace && !(await ensureWorkspaceHasRepository(workspace))) {
       openMainMenu();
       return;
     }
-    const switchingWorkspace = activeWorkspaceId !== workspace.id;
     const resolvedPath = await invoke<string>('validate_workspace_path', { path: workspace.path });
     if (switchingWorkspace && !(await prepareEditorForRootChange(resolvedPath))) return;
     if (switchingWorkspace) {
+      fileTreeRelativePath = '';
       closeAllTools(false);
       saveLayout();
     }
     workspace.path = resolvedPath;
     activeWorkspaceId = workspace.id;
+    clearComposerContextFiles();
     loadSessionDefinitions();
     saveWorkspaces();
     await startWorkspaceWatcher(workspace.path);
@@ -6260,10 +7053,12 @@ async function registerWorkspaceFromPath(path: string, enterAfter = true, reposi
       repository,
     };
     if (!(await prepareEditorForRootChange(resolvedPath))) return;
+    fileTreeRelativePath = '';
     closeAllTools(false);
     saveLayout();
     workspaces.unshift(workspace);
     activeWorkspaceId = workspace.id;
+    clearComposerContextFiles();
     loadSessionDefinitions();
     saveWorkspaces();
     await startWorkspaceWatcher(workspace.path);
@@ -6833,6 +7628,7 @@ function removeSavedWorkspace(workspaceId: string): void {
   delete layoutState.workspaces[workspaceId];
   if (wasActive) {
     activeWorkspaceId = workspaces[0]?.id ?? null;
+    clearComposerContextFiles();
     loadSessionDefinitions();
   }
   saveWorkspaces();
@@ -7180,15 +7976,17 @@ function applySettings(): void {
 function languageStatusText(): string {
   const info = localeSignals();
   const view = currentLocale();
+  const preference = languagePreferenceDraft ?? appSettings.uiLanguage;
   const device = info.deviceLocale ? localeLabel(info.deviceLocale, view) : `${t('lang.unknown')} (${info.deviceTag})`;
   const ip = info.ipCountry
     ? `${info.ipCountryName ?? info.ipCountry}${info.ipLocale ? ` → ${localeLabel(info.ipLocale, view)}` : ''}`
     : t('lang.unknown');
-  if (appSettings.uiLanguage !== 'auto') return t('lang.manualHint');
+  if (preference !== 'auto') return t('lang.manualHint');
   return t('lang.hint', { device, ip, resolved: localeLabel(view, view) });
 }
 
 function applyAppLanguage(): void {
+  const openPicker = captureOpenComposerPicker();
   const device = readDeviceLocale();
   setLocaleSignals({ deviceTag: device.tag, deviceLocale: device.locale });
   const locale = resolveLocale(languagePreferenceDraft ?? appSettings.uiLanguage, localeSignals());
@@ -7209,6 +8007,8 @@ function applyAppLanguage(): void {
   renderComposerModel();
   renderComposerAccountB();
   renderComposerModelB();
+  renderComposerPermissions('a');
+  renderComposerPermissions('b');
   renderComposerUsage();
   syncSttLangButton();
   renderProviderAccountCard();
@@ -7253,6 +8053,10 @@ function applyAppLanguage(): void {
     if (eyebrow) eyebrow.textContent = t('accounts.eyebrow');
     renderAccountsModalBody();
   }
+  refreshOpenSettingsI18n?.();
+  renderNotificationBadge();
+  if (notificationsMenuRoot.innerHTML) renderNotificationsMenu();
+  restoreOpenComposerPicker(openPicker);
   const menuOpen = Boolean(document.getElementById('main-menu-backdrop'));
   if (menuOpen && !document.querySelector('.settings-modal') && !document.getElementById('accounts-modal')) {
     if (document.querySelector('.auth-gate')) openComesAuthScreen();
@@ -7304,9 +8108,11 @@ function loadLayout(): void {
   inspectorCollapsed = layoutState.inspectorCollapsed;
   const restoredView = isLayoutView(stored.view) ? stored.view : 'overview';
   layoutState.view = restoredView === 'terminals' ? 'overview' : restoredView;
+  const previousDesignMode = designModeEnabled;
   layoutState.workLayout = isWorkLayout((stored as { workLayout?: unknown }).workLayout)
     ? (stored as { workLayout: WorkLayout }).workLayout
     : 'code';
+  designModeEnabled = layoutState.workLayout === 'design';
   layoutState.workspaces = {};
   if (stored.workspaces && typeof stored.workspaces === 'object') {
     for (const [workspaceId, value] of Object.entries(stored.workspaces as Record<string, unknown>)) {
@@ -7338,10 +8144,13 @@ function loadLayout(): void {
         terminalSizes,
         browserUrl: typeof candidate.browserUrl === 'string' ? candidate.browserUrl : null,
         localhostUrl: typeof candidate.localhostUrl === 'string' ? candidate.localhostUrl : null,
+        previewViewportMode: isPreviewViewportMode(candidate.previewViewportMode) ? candidate.previewViewportMode : 'desktop',
       };
     }
   }
   applyLayout();
+  renderDesignToolbar();
+  if (previousDesignMode !== designModeEnabled) void injectDesignPicker();
   syncResponsiveLayout(true);
   if (migrateChrome) saveLayout();
 }
@@ -7515,8 +8324,10 @@ function openLayoutPicker(): void {
 
 let nativeAgentMessagesB: AgentChatMessage[] = [];
 let nativeAgentRequestIdB: string | null = null;
+let nativeAgentTurnWorkspaceIdB: string | null = null;
 let nativeAgentBusyB = false;
 let nativeAgentStreamPreB: HTMLPreElement | null = null;
+let agentTokenUsageB: AgentTokenUsage | null = null;
 
 function ensureSplitChatLabel(panel: HTMLElement, title: string, closable: boolean): void {
   let label = panel.querySelector<HTMLElement>('.split-chat-label');
@@ -7601,6 +8412,7 @@ function ensureSecondComposer(): void {
   clone.classList.add('composer-column', 'composer-dock');
   clone.classList.remove('has-thread', 'is-busy');
   clone.hidden = false;
+  clone.querySelectorAll('.agent-memory-panel').forEach((node) => node.remove());
   clone.querySelector('#native-agent-log-b')?.replaceChildren();
   clone.querySelector('#composer-files-changed-b')?.setAttribute('hidden', '');
   clone.querySelector('#composer-git-bar-b')?.setAttribute('hidden', '');
@@ -7634,6 +8446,7 @@ function ensureSecondComposer(): void {
   destProvider?.addEventListener('change', () => {
     renderComposerAccountB();
     renderComposerModelB();
+    renderComposerPermissions('b');
     refreshSlashCommandMenu('b');
   });
   input?.addEventListener('keydown', (event) => {
@@ -7647,9 +8460,14 @@ function ensureSecondComposer(): void {
     if (nativeAgentRequestIdB) void invoke('agent_chat_cancel', { requestId: nativeAgentRequestIdB }).catch(() => undefined);
   });
   clone.querySelector('#composer-accounts-b')?.addEventListener('click', () => { void openAccountsModal(); });
+  clone.querySelector('#composer-memory-b')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openAgentMemoryPanel('b');
+  });
   clone.querySelector('#composer-hide-b')?.addEventListener('click', () => {
     setWorkLayout('code');
   });
+  syncComposerMemoryButtons();
   clone.querySelector('#composer-account-b')?.addEventListener('click', (event) => {
     event.stopPropagation();
     if (document.querySelector('.account-picker-menu')) {
@@ -7676,9 +8494,18 @@ function ensureSecondComposer(): void {
     modelPickerSlot = 'b';
     setSelectedChoice(account.id, selected.option.id, effort);
   });
+  clone.querySelector<HTMLButtonElement>('#composer-permissions-b')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (document.querySelector('.agent-permissions-menu')) {
+      closeAgentPermissionsPicker();
+      return;
+    }
+    openAgentPermissionsPicker('b');
+  });
   clone.querySelector('#composer-usage-b')?.addEventListener('click', () => { void openAccountsModal(); });
   renderComposerAccountB();
   renderComposerModelB();
+  renderComposerPermissions('b');
 }
 
 function appendNativeAgentLineB(kind: string, text: string, heading?: string): HTMLDivElement {
@@ -7759,6 +8586,8 @@ async function restoreWorkspaceLayout(): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) return;
   const saved = layoutState.workspaces[workspace.id];
+  previewViewportMode = isPreviewViewportMode(saved?.previewViewportMode) ? saved.previewViewportMode : 'desktop';
+  renderDesignToolbar();
   const requestedFiles = saved?.openFilePaths?.length ? saved.openFilePaths : (saved?.openFilePath ? [saved.openFilePath] : []);
   const filePaths = [...requestedFiles.filter((path) => path !== saved?.openFilePath), ...(saved?.openFilePath ? [saved.openFilePath] : [])];
   for (const path of filePaths.slice(0, 24)) await openWorkspaceFile(path);
@@ -7784,14 +8613,443 @@ function scheduleNoteSave(): void {
     notesStatus.textContent = t('chrome.locked');
     return;
   }
+  const workspaceId = activeWorkspaceId;
+  const value = notesInput.value;
   notesStatus.textContent = t('chrome.saving');
-  if (noteSaveTimer) window.clearTimeout(noteSaveTimer);
-  noteSaveTimer = window.setTimeout(() => {
+  const previousTimer = noteSaveTimers.get(workspaceId);
+  if (previousTimer) window.clearTimeout(previousTimer);
+  const timer = window.setTimeout(() => {
+    noteSaveTimers.delete(workspaceId);
     const notes = notesStore();
-    notes[activeWorkspaceId!] = notesInput.value;
+    notes[workspaceId] = value;
     setStoredValue(storageKeys.notes, JSON.stringify(notes));
-    notesStatus.textContent = t('chrome.saved');
+    if (activeWorkspaceId === workspaceId) notesStatus.textContent = t('chrome.saved');
   }, 260);
+  noteSaveTimers.set(workspaceId, timer);
+}
+
+const AGENT_MEMORY_MAX_ENTRIES = 40;
+const AGENT_MEMORY_MAX_BYTES = 8 * 1024;
+const AGENT_MEMORY_BRAIN_NODE_COUNT = 56;
+
+function buildMemoryBrainNodes(count = AGENT_MEMORY_BRAIN_NODE_COUNT): { x: number; y: number }[] {
+  const inside = (x: number, y: number): boolean => {
+    const left = ((x - 38) / 33) ** 2 + ((y - 46) / 39) ** 2 <= 1;
+    const right = ((x - 72) / 33) ** 2 + ((y - 46) / 39) ** 2 <= 1;
+    const stem = y >= 78 && y <= 96 && Math.abs(x - 55) <= 7 - (y - 78) * 0.12;
+    const topCleft = ((x - 55) / 7) ** 2 + ((y - 16) / 9) ** 2 <= 1;
+    return (left || right || stem) && !topCleft;
+  };
+  const candidates: { x: number; y: number }[] = [];
+  for (let row = 0; row < 12; row += 1) {
+    const y = 14 + row * 7.2;
+    const offset = row % 2 === 0 ? 0 : 3.6;
+    for (let col = 0; col < 14; col += 1) {
+      const x = 10 + col * 7.2 + offset;
+      if (inside(x, y)) candidates.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+    }
+  }
+  if (candidates.length <= count) return candidates;
+  const step = candidates.length / count;
+  const picked: { x: number; y: number }[] = [];
+  for (let index = 0; index < count; index += 1) {
+    picked.push(candidates[Math.min(candidates.length - 1, Math.floor(index * step))]!);
+  }
+  return picked;
+}
+
+const MEMORY_BRAIN_NODES = buildMemoryBrainNodes();
+
+function agentMemoryStore(): Record<string, AgentMemoryEntry[]> {
+  const raw = readJson<Record<string, unknown>>(storageKeys.agentMemory, {});
+  const next: Record<string, AgentMemoryEntry[]> = {};
+  for (const [workspaceId, value] of Object.entries(raw)) {
+    if (!Array.isArray(value)) continue;
+    next[workspaceId] = value
+      .filter((item): item is AgentMemoryEntry => {
+        if (!item || typeof item !== 'object') return false;
+        const entry = item as Partial<AgentMemoryEntry>;
+        return typeof entry.id === 'string'
+          && typeof entry.text === 'string'
+          && typeof entry.createdAt === 'number'
+          && (entry.source === 'manual' || entry.source === 'chat');
+      })
+      .map((entry) => ({
+        id: entry.id,
+        text: entry.text.trim(),
+        createdAt: entry.createdAt,
+        source: entry.source,
+      }))
+      .filter((entry) => entry.text.length > 0);
+  }
+  return next;
+}
+
+function getWorkspaceMemories(workspaceId: string | null): AgentMemoryEntry[] {
+  if (!workspaceId) return [];
+  return agentMemoryStore()[workspaceId] ?? [];
+}
+
+function getActiveWorkspaceMemories(): AgentMemoryEntry[] {
+  return getWorkspaceMemories(activeWorkspaceId);
+}
+
+function memoryEntriesByteSize(entries: AgentMemoryEntry[]): number {
+  return new TextEncoder().encode(JSON.stringify(entries)).length;
+}
+
+function trimAgentMemories(entries: AgentMemoryEntry[]): AgentMemoryEntry[] {
+  let next = entries.slice(-AGENT_MEMORY_MAX_ENTRIES);
+  while (next.length > 1 && memoryEntriesByteSize(next) > AGENT_MEMORY_MAX_BYTES) {
+    next = next.slice(1);
+  }
+  if (memoryEntriesByteSize(next) > AGENT_MEMORY_MAX_BYTES) return [];
+  return next;
+}
+
+function persistWorkspaceMemories(workspaceId: string | null, entries: AgentMemoryEntry[]): void {
+  if (!workspaceId) return;
+  const store = agentMemoryStore();
+  const trimmed = trimAgentMemories(entries);
+  if (trimmed.length) store[workspaceId] = trimmed;
+  else delete store[workspaceId];
+  setStoredValue(storageKeys.agentMemory, JSON.stringify(store));
+  if (workspaceId === activeWorkspaceId) syncComposerMemoryButtons();
+}
+
+function persistActiveWorkspaceMemories(entries: AgentMemoryEntry[]): void {
+  persistWorkspaceMemories(activeWorkspaceId, entries);
+}
+
+function normalizeMemoryText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 280);
+}
+
+function addAgentMemory(text: string, source: AgentMemorySource, notify = true, workspaceId = activeWorkspaceId): AgentMemoryEntry | null {
+  if (!workspaceId) {
+    if (notify) showToast(t('memory.locked'), true);
+    return null;
+  }
+  const normalized = normalizeMemoryText(text);
+  if (!normalized) return null;
+  const current = getWorkspaceMemories(workspaceId);
+  if (current.some((entry) => entry.text.toLowerCase() === normalized.toLowerCase())) {
+    if (notify) showToast(t('memory.duplicate'));
+    return null;
+  }
+  if (current.length >= AGENT_MEMORY_MAX_ENTRIES || memoryEntriesByteSize(current) >= AGENT_MEMORY_MAX_BYTES) {
+    if (notify) showToast(t('memory.full'), true);
+    return null;
+  }
+  const entry: AgentMemoryEntry = {
+    id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    text: normalized,
+    createdAt: Date.now(),
+    source,
+  };
+  const next = trimAgentMemories([...current, entry]);
+  if (!next.some((item) => item.id === entry.id)) {
+    if (notify) showToast(t('memory.full'), true);
+    return null;
+  }
+  persistWorkspaceMemories(workspaceId, next);
+  return entry;
+}
+
+function updateAgentMemory(id: string, text: string): boolean {
+  const normalized = normalizeMemoryText(text);
+  if (!normalized) return false;
+  const current = getActiveWorkspaceMemories();
+  const index = current.findIndex((entry) => entry.id === id);
+  if (index < 0) return false;
+  const next = current.slice();
+  next[index] = { ...next[index]!, text: normalized };
+  persistActiveWorkspaceMemories(trimAgentMemories(next));
+  return true;
+}
+
+function deleteAgentMemory(id: string): void {
+  persistActiveWorkspaceMemories(getActiveWorkspaceMemories().filter((entry) => entry.id !== id));
+}
+
+function lastUserMessageText(panel: 'a' | 'b' = 'a'): string {
+  const messages = panel === 'b' ? nativeAgentMessagesB : nativeAgentMessages;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === 'user' && message.content.trim()) return message.content.trim();
+  }
+  return '';
+}
+
+const AUTOMATIC_MEMORY_CUE = /\b(?:remember(?: that)?|keep in mind|note that|from now on|always|never|my preference(?: is)?|i prefer|don't use|do not use|recuerda(?: que)?|ten en cuenta|a partir de ahora|siempre|nunca|mi preferencia(?: es)?|prefiero|no uses|no utilices|este proyecto (?:usa|utiliza|requiere|prefiere)|este workspace (?:usa|utiliza|requiere))\b/i;
+
+function proposeAutomaticMemoriesFromUser(message: string): string[] {
+  const unique: string[] = [];
+  const pushUnique = (value: string): void => {
+    const normalized = normalizeMemoryText(value);
+    if (!normalized || unique.some((item) => item.toLowerCase() === normalized.toLowerCase())) return;
+    unique.push(normalized);
+  };
+  const segments = message
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]+`/g, ' ')
+    .split(/\r?\n|(?<=[.!?])\s+/)
+    .map((segment) => segment.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter((segment) => segment.length >= 18 && segment.length <= 220)
+    .filter((segment) => !/[?]$/.test(segment))
+    .filter((segment) => AUTOMATIC_MEMORY_CUE.test(segment));
+  for (const segment of segments) {
+    pushUnique(segment);
+    if (unique.length >= 3) break;
+  }
+  return unique;
+}
+
+const AUTOMATIC_MEMORY_REPLY_CUE = /\b(?:the project|this project|our project|the app|this workspace|we use|the app uses|el proyecto|este proyecto|la app|este workspace|usamos|utiliza|prefer|preference|preferencia|always|never|siempre|nunca|convention|rule|regla|decision|decisión|agreement|acuerdo|configured|configurado|set to|establecido)\b/i;
+
+function proposeAutomaticMemoriesFromReply(reply: string): string[] {
+  const unique: string[] = [];
+  const pushUnique = (value: string): void => {
+    const normalized = normalizeMemoryText(value);
+    if (!normalized || unique.some((item) => item.toLowerCase() === normalized.toLowerCase())) return;
+    unique.push(normalized);
+  };
+  const segments = reply
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]+`/g, ' ')
+    .split(/\r?\n|(?<=[.!?])\s+/)
+    .map((segment) => segment.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter((segment) => segment.length >= 24 && segment.length <= 220)
+    .filter((segment) => !/[?]$/.test(segment))
+    .filter((segment) => !/^(?:here'|i(?:'ll| will)|i can|sure|ok|okay|let me|voy a|claro|perfecto|haré|puedo)\b/i.test(segment))
+    .filter((segment) => AUTOMATIC_MEMORY_REPLY_CUE.test(segment));
+  for (const segment of segments) {
+    pushUnique(segment);
+    if (unique.length >= 3) break;
+  }
+  return unique;
+}
+
+function autoCaptureAgentMemory(panel: 'a' | 'b', workspaceId: string | null): void {
+  if (!workspaceId) return;
+  const userMessage = lastUserMessageText(panel);
+  if (!userMessage || /^\/[^\s]+/.test(userMessage)) return;
+  const userCandidates = proposeAutomaticMemoriesFromUser(userMessage);
+  const candidates = userCandidates.length ? userCandidates : proposeAutomaticMemoriesFromReply(lastAssistantReplyText(panel));
+  if (!candidates.length) return;
+  let saved = 0;
+  for (const candidate of candidates) {
+    if (addAgentMemory(candidate, 'chat', false, workspaceId)) saved += 1;
+  }
+  if (saved && workspaceId === activeWorkspaceId) {
+    refreshOpenAgentMemoryPanel();
+    showToast(t('memory.autoSaved', { count: saved }));
+  }
+}
+
+function lastAssistantReplyText(panel: 'a' | 'b' = 'a'): string {
+  const messages = panel === 'b' ? nativeAgentMessagesB : nativeAgentMessages;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === 'assistant' && message.content.trim()) return message.content.trim();
+  }
+  return '';
+}
+
+function proposeMemoriesFromReply(reply: string): string[] {
+  const cleaned = reply
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]+`/g, ' ')
+    .replace(/\[Agent memory[^\]]*\][\s\S]*?(?=\n\n|$)/gi, ' ')
+    .replace(/\[Editor context[^\]]*\][\s\S]*?(?=\n\n|$)/gi, ' ')
+    .trim();
+  if (!cleaned) return [];
+  const bulletLines = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter((line) => line.length >= 24 && line.length <= 220)
+    .filter((line) => /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(line))
+    .filter((line) => !/^(here'|i'll|i can|sure|ok|okay|let me|voy a|claro|perfecto)/i.test(line));
+  const unique: string[] = [];
+  const pushUnique = (value: string): void => {
+    const normalized = normalizeMemoryText(value);
+    if (!normalized) return;
+    if (unique.some((item) => item.toLowerCase() === normalized.toLowerCase())) return;
+    unique.push(normalized);
+  };
+  for (const line of bulletLines) {
+    pushUnique(line);
+    if (unique.length >= 3) return unique;
+  }
+  if (unique.length) return unique.slice(0, 3);
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 28 && part.length <= 220)
+    .filter((part) => /[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/.test(part));
+  for (const sentence of sentences) {
+    pushUnique(sentence);
+    if (unique.length >= 3) break;
+  }
+  return unique.slice(0, 3);
+}
+
+function syncComposerMemoryButtons(): void {
+  const count = getActiveWorkspaceMemories().length;
+  for (const suffix of ['', '-b'] as const) {
+    const button = document.querySelector<HTMLButtonElement>(`#composer-memory${suffix}`);
+    const badge = document.querySelector<HTMLElement>(`#composer-memory-count${suffix}`);
+    if (badge) {
+      badge.textContent = String(count);
+      badge.hidden = count === 0;
+    }
+    if (button) {
+      button.classList.toggle('has-memories', count > 0);
+      button.title = count ? t('memory.buttonCount', { count }) : t('memory.button');
+    }
+  }
+}
+
+function closeAgentMemoryPanel(): void {
+  document.querySelector<HTMLElement>('.agent-memory-panel')?.remove();
+  document.querySelector('#composer-memory')?.setAttribute('aria-expanded', 'false');
+  document.querySelector('#composer-memory-b')?.setAttribute('aria-expanded', 'false');
+  closeAgentMemoryPanelListeners?.();
+  closeAgentMemoryPanelListeners = null;
+}
+
+function renderAgentMemoryBrain(host: HTMLElement, lit: number): void {
+  const on = Math.min(Math.max(0, lit), MEMORY_BRAIN_NODES.length);
+  host.innerHTML = `<svg class="agent-memory-brain-svg" viewBox="0 0 110 104" role="img" aria-label="${escapeHtml(t('memory.brainAria', { lit: on, total: MEMORY_BRAIN_NODES.length }))}">${MEMORY_BRAIN_NODES.map((node, index) => `<circle class="agent-memory-node${index < on ? ' is-on' : ''}" cx="${node.x}" cy="${node.y}" r="2.35" />`).join('')}</svg>`;
+}
+
+function renderAgentMemoryList(list: HTMLElement, memories: AgentMemoryEntry[]): void {
+  if (!memories.length) {
+    list.innerHTML = `<p class="agent-memory-empty">${escapeHtml(t('memory.empty'))}</p>`;
+    return;
+  }
+  list.innerHTML = memories.slice().reverse().map((entry) => `
+    <article class="agent-memory-item" data-memory-id="${escapeHtml(entry.id)}">
+      <textarea class="agent-memory-text" rows="2" aria-label="${escapeHtml(t('memory.edit'))}">${escapeHtml(entry.text)}</textarea>
+      <div class="agent-memory-item-meta">
+        <small>${escapeHtml(t(entry.source === 'chat' ? 'memory.sourceChat' : 'memory.sourceManual'))}</small>
+        <button class="icon-button agent-memory-delete" type="button" data-memory-delete="${escapeHtml(entry.id)}" title="${escapeHtml(t('memory.delete'))}" aria-label="${escapeHtml(t('memory.delete'))}">${icons.trash}</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function refreshOpenAgentMemoryPanel(): void {
+  const panel = document.querySelector<HTMLElement>('.agent-memory-panel');
+  if (!panel) return;
+  const memories = getActiveWorkspaceMemories();
+  const brain = panel.querySelector<HTMLElement>('.agent-memory-brain');
+  const list = panel.querySelector<HTMLElement>('.agent-memory-list');
+  const status = panel.querySelector<HTMLElement>('.agent-memory-status');
+  if (brain) renderAgentMemoryBrain(brain, memories.length);
+  if (list) renderAgentMemoryList(list, memories);
+  if (status) status.textContent = t('memory.count', { count: memories.length, max: AGENT_MEMORY_MAX_ENTRIES });
+}
+
+function openAgentMemoryPanel(slot: 'a' | 'b' = 'a'): void {
+  const suffix = slot === 'b' ? '-b' : '';
+  const button = document.querySelector<HTMLButtonElement>(`#composer-memory${suffix}`);
+  const host = document.querySelector<HTMLElement>(`#native-agent-panel${suffix}`);
+  if (!button || !host) return;
+  const wasOpen = button.getAttribute('aria-expanded') === 'true';
+  if (document.querySelector('.agent-memory-panel')) {
+    closeAgentMemoryPanel();
+    if (wasOpen) return;
+  }
+  closeAccountPicker();
+  closeModelPicker();
+  closeSttLangPicker();
+  closeSlashCommandMenu();
+  const memories = getActiveWorkspaceMemories();
+  const panel = document.createElement('div');
+  panel.className = 'agent-memory-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', t('memory.title'));
+  panel.innerHTML = `
+    <header class="agent-memory-header">
+      <div>
+        <strong>${escapeHtml(t('memory.title'))}</strong>
+        <small class="agent-memory-status">${escapeHtml(t('memory.count', { count: memories.length, max: AGENT_MEMORY_MAX_ENTRIES }))}</small>
+      </div>
+      <button class="icon-button" type="button" data-memory-close="1" title="${escapeHtml(t('memory.close'))}" aria-label="${escapeHtml(t('memory.close'))}">${icons.close}</button>
+    </header>
+    <div class="agent-memory-brain" aria-hidden="false"></div>
+    <p class="agent-memory-hint">${escapeHtml(t('memory.hint'))}</p>
+    <div class="agent-memory-list"></div>
+    <form class="agent-memory-add" data-memory-add-form="1">
+      <input class="field-input agent-memory-input" type="text" maxlength="280" placeholder="${escapeHtml(t('memory.addPlaceholder'))}" aria-label="${escapeHtml(t('memory.addPlaceholder'))}" ${activeWorkspaceId ? '' : 'disabled'} />
+      <button class="secondary-button" type="submit" ${activeWorkspaceId ? '' : 'disabled'}>${escapeHtml(t('memory.add'))}</button>
+    </form>
+    <button class="secondary-button agent-memory-from-chat" type="button" data-memory-from-chat="1" ${activeWorkspaceId ? '' : 'disabled'}>${escapeHtml(t('memory.saveFromChat'))}</button>
+  `;
+  host.appendChild(panel);
+  const brain = panel.querySelector<HTMLElement>('.agent-memory-brain');
+  const list = panel.querySelector<HTMLElement>('.agent-memory-list');
+  if (brain) renderAgentMemoryBrain(brain, memories.length);
+  if (list) renderAgentMemoryList(list, memories);
+  button.setAttribute('aria-expanded', 'true');
+  const outside = (event: PointerEvent): void => {
+    if (panel.contains(event.target as Node) || button.contains(event.target as Node)) return;
+    closeAgentMemoryPanel();
+  };
+  document.addEventListener('pointerdown', outside);
+  closeAgentMemoryPanelListeners = () => {
+    document.removeEventListener('pointerdown', outside);
+  };
+  panel.querySelector<HTMLInputElement>('.agent-memory-input')?.focus();
+  panel.addEventListener('click', (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-memory-close], [data-memory-delete], [data-memory-from-chat]');
+    if (!target) return;
+    if (target.dataset.memoryClose) {
+      closeAgentMemoryPanel();
+      return;
+    }
+    if (target.dataset.memoryDelete) {
+      deleteAgentMemory(target.dataset.memoryDelete);
+      refreshOpenAgentMemoryPanel();
+      return;
+    }
+    if (target.dataset.memoryFromChat) {
+      const proposals = proposeMemoriesFromReply(lastAssistantReplyText(slot));
+      if (!proposals.length) {
+        showToast(t('memory.noChat'), true);
+        return;
+      }
+      let saved = 0;
+      for (const text of proposals) {
+        if (addAgentMemory(text, 'chat')) saved += 1;
+      }
+      refreshOpenAgentMemoryPanel();
+      showToast(saved ? t('memory.savedFromChat', { count: saved }) : t('memory.duplicate'));
+    }
+  });
+  panel.querySelector<HTMLFormElement>('[data-memory-add-form]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const input = panel.querySelector<HTMLInputElement>('.agent-memory-input');
+    if (!input) return;
+    const added = addAgentMemory(input.value, 'manual');
+    if (added) {
+      input.value = '';
+      refreshOpenAgentMemoryPanel();
+    }
+  });
+  panel.addEventListener('change', (event) => {
+    const area = (event.target as HTMLElement).closest<HTMLTextAreaElement>('.agent-memory-text');
+    if (!area) return;
+    const item = area.closest<HTMLElement>('[data-memory-id]');
+    const id = item?.dataset.memoryId;
+    if (!id) return;
+    if (!updateAgentMemory(id, area.value)) {
+      refreshOpenAgentMemoryPanel();
+      return;
+    }
+    refreshOpenAgentMemoryPanel();
+  });
 }
 
 async function writeToSession(sessionId: string, data: string): Promise<void> {
@@ -7826,6 +9084,7 @@ function updateWorkspaceView(): void {
   syncTerminalSurface();
   notesInput.disabled = locked;
   loadNotes();
+  syncComposerMemoryButtons();
   applyInspectorTabVisibility();
   renderInspectorPanels();
 }
@@ -7835,6 +9094,8 @@ let currentGitQueryRoot: string | null = null;
 let gitPanelError: string | null = null;
 let gitPanelBusy = false;
 let currentGitDiffStats: GitDiffStats | null = null;
+let gitRefreshRequest = 0;
+let gitDiffRequest = 0;
 let composerFilesChangedExpanded = false;
 let currentGitWorktrees: GitWorktree[] = [];
 let currentGitWorktreeRoot: string | null = null;
@@ -8037,7 +9298,7 @@ async function createWorkspaceEntry(kind: 'file' | 'directory'): Promise<void> {
   }
 }
 
-function openFileContextMenu(event: MouseEvent, relative: string): void {
+function openFileContextMenu(event: MouseEvent, relative: string, isDirectory = false): void {
   event.preventDefault();
   const workspace = getWorkspace();
   if (!workspace) return;
@@ -8046,7 +9307,8 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
   menu.className = 'file-context-menu';
   menu.style.left = `${Math.min(event.clientX, window.innerWidth - 220)}px`;
   menu.style.top = `${Math.min(event.clientY, window.innerHeight - 180)}px`;
-  menu.innerHTML = '<button data-context-action="rename" type="button">' + escapeHtml(t('chrome.ctxRename')) + '</button><button data-context-action="move" type="button">' + escapeHtml(t('chrome.ctxMove')) + '</button><button data-context-action="delete" type="button">' + escapeHtml(t('chrome.ctxDelete')) + '</button><button data-context-action="reveal" type="button">' + escapeHtml(t('chrome.ctxReveal')) + '</button><button data-context-action="copy" type="button">' + escapeHtml(t('chrome.ctxCopyRelative')) + '</button><button data-context-action="copy-absolute" type="button">' + escapeHtml(t('chrome.ctxCopyAbsolute')) + '</button>';
+  const attachAction = isDirectory ? '' : '<button data-context-action="attach" type="button">' + escapeHtml(t('chrome.attach')) + '</button>';
+  menu.innerHTML = attachAction + '<button data-context-action="rename" type="button">' + escapeHtml(t('chrome.ctxRename')) + '</button><button data-context-action="move" type="button">' + escapeHtml(t('chrome.ctxMove')) + '</button><button data-context-action="delete" type="button">' + escapeHtml(t('chrome.ctxDelete')) + '</button><button data-context-action="reveal" type="button">' + escapeHtml(t('chrome.ctxReveal')) + '</button><button data-context-action="copy" type="button">' + escapeHtml(t('chrome.ctxCopyRelative')) + '</button><button data-context-action="copy-absolute" type="button">' + escapeHtml(t('chrome.ctxCopyAbsolute')) + '</button>';
   document.body.appendChild(menu);
   const close = (): void => { menu.remove(); document.removeEventListener('pointerdown', outside); };
   const outside = (pointerEvent: PointerEvent): void => { if (!menu.contains(pointerEvent.target as Node)) close(); };
@@ -8055,7 +9317,9 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
     const action = (menuEvent.target as HTMLElement).closest<HTMLElement>('[data-context-action]')?.dataset.contextAction;
     close();
     try {
-      if (action === 'rename') {
+      if (action === 'attach') {
+        addComposerContextFile({ path: relative, root: activeProjectRoot() ?? workspace.path });
+      } else if (action === 'rename') {
         const current = relative.split(/[\\/]/).pop() ?? relative;
         const next = await askPrompt(t('modal.renamePrompt'), current, { title: t('modal.renameTitle'), confirmLabel: t('modal.renameConfirm') });
         if (next?.trim()) {
@@ -8077,6 +9341,7 @@ function openFileContextMenu(event: MouseEvent, relative: string): void {
       } else if (action === 'delete') {
         if (!(await askConfirm(t('modal.deleteConfirm'), { title: t('modal.deleteTitle'), confirmLabel: t('modal.deleteAction'), danger: true }))) return;
         await invoke('delete', { root: activeProjectRoot() ?? workspace.path, relative });
+        removeComposerContextFilesInside(relative);
         if (isSameOrInsideRelativePath(openFilePath, relative)) clearOpenFile();
       } else if (action === 'reveal') {
         await invoke('reveal_path', { path: workspaceAbsolutePath(workspace, relative) });
@@ -8218,10 +9483,15 @@ async function saveWorkspaceFile(): Promise<void> {
 async function loadGitDiff(relative: string): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) return;
+  const requestId = ++gitDiffRequest;
+  const workspaceId = workspace.id;
+  const root = gitActionRoot() ?? workspace.path;
   try {
-    const versions = await invoke<GitFileVersions>('file_versions', { path: gitActionRoot() ?? workspace.path, relative, staged: false });
+    const versions = await invoke<GitFileVersions>('file_versions', { path: root, relative, staged: false });
+    if (requestId !== gitDiffRequest || getWorkspace()?.id !== workspaceId) return;
     setDiffVersions(versions.original, versions.current, relative);
   } catch (error) {
+    if (requestId !== gitDiffRequest || getWorkspace()?.id !== workspaceId) return;
     setDiffMessage(String(error));
   }
 }
@@ -8312,6 +9582,8 @@ async function invokeGitStatus(path: string): Promise<GitStatusResult> {
 }
 
 async function refreshGitPanel(): Promise<void> {
+  const requestId = ++gitRefreshRequest;
+  const isCurrentRequest = (): boolean => requestId === gitRefreshRequest;
   const workspace = getWorkspace();
   if (!workspace) {
     currentGitStatus = null;
@@ -8340,7 +9612,9 @@ async function refreshGitPanel(): Promise<void> {
   gitPanelBusy = true;
   gitPanelError = null;
   renderInspectorPanels();
-  if (!(await ensureGitAvailable())) {
+  const gitAvailable = await ensureGitAvailable();
+  if (!isCurrentRequest() || getWorkspace()?.id !== workspace.id) return;
+  if (!gitAvailable) {
     gitPanelBusy = false;
     currentGitStatus = null;
     currentGitQueryRoot = workspace.path;
@@ -8372,8 +9646,9 @@ async function refreshGitPanel(): Promise<void> {
     } catch (error) {
       lastError = String(error);
     }
+    if (!isCurrentRequest() || getWorkspace()?.id !== workspace.id) return;
   }
-  if (getWorkspace()?.id !== workspace.id) return;
+  if (!isCurrentRequest() || getWorkspace()?.id !== workspace.id) return;
   gitPanelBusy = false;
   if (!status) {
     currentGitStatus = null;
@@ -8404,7 +9679,9 @@ async function refreshGitPanel(): Promise<void> {
   } catch {
     currentGitDiffStats = null;
   }
+  if (!isCurrentRequest() || getWorkspace()?.id !== workspace.id) return;
   await refreshWorktrees();
+  if (!isCurrentRequest() || getWorkspace()?.id !== workspace.id) return;
   renderInspectorPanels();
   renderComposerGitChrome();
 }
@@ -8845,7 +10122,7 @@ function renderStatus(): void {
   }
 
   const titlebarName = document.querySelector<HTMLElement>('#titlebar-workspace-name');
-  if (titlebarName) titlebarName.textContent = workspace?.name ?? 'ComesADE';
+  if (titlebarName) titlebarName.textContent = mainMenuOpen ? 'ComesADE' : workspace?.name ?? 'ComesADE';
   updateStatusbar();
   renderAiContextBar();
 
@@ -9006,7 +10283,7 @@ function mountTerminal(session: SessionInfo): void {
     observeTerminalInput(session.id, data);
     void invoke('write_to_session', { sessionId: session.id, data }).catch((error: unknown) => {
       if (!closingSessionIds.has(session.id) && !ignoredSessionIds.has(session.id)) {
-        showToast(String(error), true);
+        showErrorToast(error);
       }
     });
   });
@@ -9211,7 +10488,10 @@ function handleStatus(payload: TerminalStatusEvent): void {
     return;
   }
   session.status = payload.status;
-  if (payload.status === 'running' && !sessionActivities.has(payload.sessionId)) sessionActivities.set(payload.sessionId, 'waiting');
+  if (payload.status === 'running') {
+    exitedSessions.delete(payload.sessionId);
+    if (!sessionActivities.has(payload.sessionId)) sessionActivities.set(payload.sessionId, 'waiting');
+  }
   scheduleTerminalHeaderState(payload.sessionId);
   if (payload.status !== 'running') exitedSessions.add(payload.sessionId);
   scheduleRender();
@@ -9307,7 +10587,7 @@ async function openSessionDetails(session: SessionInfo): Promise<void> {
   document.querySelector<HTMLButtonElement>('#session-details-close')?.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#session-details-done')?.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#session-details-explorer')?.addEventListener('click', () => {
-    void invoke('reveal_path', { path: root }).catch((error) => showToast(String(error), true));
+    void invoke('reveal_path', { path: root }).catch((error) => showErrorToast(error));
   });
 }
 
@@ -9484,7 +10764,7 @@ function openInspectorActionsMenu(): void {
     if (action === 'new-file') await createWorkspaceEntry('file');
     else if (action === 'new-folder') await createWorkspaceEntry('directory');
     else if (action === 'refresh') await refreshWorkspacePanels();
-    else if (action === 'reveal') await invoke('reveal_path', { path: workspace.path }).catch((error) => showToast(String(error), true));
+    else if (action === 'reveal') await invoke('reveal_path', { path: workspace.path }).catch((error) => showErrorToast(error));
     else if (action === 'search') await openSearchModal();
   });
 }
@@ -9589,6 +10869,8 @@ function renderTools(): void {
   }).join('');
   toolEmpty.hidden = panels.length > 0;
   panels.forEach((panel) => panel.element.classList.toggle('tool-view-active', panel.id === activeToolId));
+  syncPreviewViewportControls();
+  syncPreviewViewportFrameState();
 }
 
 function scheduleWebviewSync(): void {
@@ -9598,6 +10880,7 @@ function scheduleWebviewSync(): void {
 function syncEmbeddedWebviews(): void {
   const modalOpen = modalRoot.childElementCount > 0;
   const panels = [...browserPanels.values(), ...localhostPanels.values()];
+  syncPreviewViewportFrameState();
   for (const panel of panels) {
     if (!panel.webview) {
       visibleBrowserWebviews.delete(panel.id);
@@ -9614,10 +10897,21 @@ function syncEmbeddedWebviews(): void {
       if (visibleBrowserWebviews.delete(panel.id)) void panel.webview.hide().catch(() => undefined);
       continue;
     }
-    const left = Math.max(0, Math.round(rect.left));
-    const top = Math.max(0, Math.round(rect.top));
-    const width = Math.max(8, Math.round(rect.width));
-    const height = Math.max(8, Math.round(rect.height));
+    const mode = panel.id === activeToolId ? effectivePreviewViewportMode() : 'desktop';
+    const viewport = PREVIEW_VIEWPORTS[mode];
+    const gutter = mode === 'desktop' ? 0 : 24;
+    const width = Math.max(8, Math.min(
+      Math.round(rect.width),
+      mode === 'desktop' ? Math.round(rect.width) : Math.max(8, Math.round(rect.width - gutter * 2)),
+      mode === 'desktop' ? Math.round(rect.width) : viewport.width,
+    ));
+    const height = Math.max(8, Math.min(
+      Math.round(rect.height),
+      mode === 'desktop' ? Math.round(rect.height) : Math.max(8, Math.round(rect.height - gutter * 2)),
+      mode === 'desktop' ? Math.round(rect.height) : viewport.height,
+    ));
+    const left = Math.max(0, Math.round(rect.left + (rect.width - width) / 2));
+    const top = Math.max(0, Math.round(rect.top + (rect.height - height) / 2));
     const geometry = `${left}:${top}:${width}:${height}`;
     const operations: Promise<unknown>[] = [];
     if (browserWebviewGeometry.get(panel.id) !== geometry) {
@@ -10056,12 +11350,12 @@ function openSessionMenu(): void {
   document.querySelector<HTMLInputElement>('#session-cwd-input')!.focus();
 }
 
-function openWorkspaceModal(returnToMenu = true, enterAfter = false): void {
+function openCreateRepositoryModal(returnToMenu = true, enterAfter = false): void {
   if (!hasActiveSubscription()) {
     void ensureSignedInForDesktop();
     return;
   }
-  modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-modal-backdrop"><form class="modal-panel" id="workspace-form"><div class="modal-heading"><div><span class="eyebrow">${escapeHtml(t('menu.createEyebrow'))}</span><h2>${escapeHtml(t('menu.createWorkspaceTitle'))}</h2></div><button class="modal-close" id="workspace-modal-close" type="button" aria-label="${escapeHtml(t('common.close'))}">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.createGithubCopy'))}</p><label class="field-label" for="workspace-name-input">${escapeHtml(t('menu.createWorkspaceName'))}</label><input class="field-input" id="workspace-name-input" placeholder="${escapeHtml(t('menu.createNamePh'))}" required/><label class="field-label" for="workspace-path-input">${escapeHtml(t('menu.createLocalFolder'))}</label><input class="field-input" id="workspace-path-input" placeholder="${escapeHtml(t('menu.createLocalPlaceholder'))}"/><div class="modal-actions"><button class="secondary-button" id="workspace-modal-cancel" type="button">${escapeHtml(t('common.cancel'))}</button><button class="primary-button" type="submit">${icons.github}<span>${escapeHtml(t('menu.create'))}</span></button></div></form></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="workspace-modal-backdrop"><form class="modal-panel" id="workspace-form"><div class="modal-heading"><div><span class="eyebrow">${escapeHtml(t('menu.createEyebrow'))}</span><h2>${escapeHtml(t('menu.create'))}</h2></div><button class="modal-close" id="workspace-modal-close" type="button" aria-label="${escapeHtml(t('common.close'))}">${icons.close}</button></div><p class="modal-copy">${escapeHtml(t('menu.createGithubCopy'))}</p><label class="field-label" for="workspace-name-input">${escapeHtml(t('menu.createName'))}</label><input class="field-input" id="workspace-name-input" placeholder="${escapeHtml(t('menu.createNamePh'))}" required/><label class="field-label" for="workspace-path-input">${escapeHtml(t('menu.createLocalFolder'))}</label><input class="field-input" id="workspace-path-input" placeholder="${escapeHtml(t('menu.createLocalPlaceholder'))}"/><div class="modal-actions"><button class="secondary-button" id="workspace-modal-cancel" type="button">${escapeHtml(t('common.cancel'))}</button><button class="primary-button" type="submit">${icons.github}<span>${escapeHtml(t('menu.create'))}</span></button></div></form></div>`;
   const close = (): void => { modalRoot.innerHTML = ''; if (returnToMenu) openMainMenu(); };
   document.querySelector<HTMLButtonElement>('#workspace-modal-close')!.addEventListener('click', close);
   document.querySelector<HTMLButtonElement>('#workspace-modal-cancel')!.addEventListener('click', close);
@@ -10097,7 +11391,7 @@ function openWorkspaceModal(returnToMenu = true, enterAfter = false): void {
       await registerWorkspaceFromPath(destination, enterAfter, repository.fullName);
       showToast(t('toast.githubCreatedCloned', { name: repository.fullName }));
     } catch (error) {
-      showToast(String(error), true);
+      showErrorToast(error);
     }
   });
   document.querySelector<HTMLInputElement>('#workspace-name-input')!.focus();
@@ -10235,10 +11529,10 @@ async function openSettingsModal(): Promise<void> {
         <h2 id="settings-title" data-i18n="settings.title">${escapeHtml(t('settings.title'))}</h2>
         <p class="modal-copy" id="settings-description" data-i18n="settings.description">${escapeHtml(t('settings.description'))}</p>
       </div>
-      <button class="modal-close" id="settings-close" type="button" aria-label="${escapeHtml(t('common.close'))}">${icons.close}</button>
+      <button class="modal-close" id="settings-close" type="button" aria-label="${escapeHtml(t('common.close'))}" data-i18n-aria="common.close">${icons.close}</button>
     </header>
     <div class="settings-layout">
-      <nav class="settings-nav" aria-label="${escapeHtml(t('settings.title'))}">
+      <nav class="settings-nav" aria-label="${escapeHtml(t('settings.title'))}" data-i18n-aria="settings.title">
         <button class="settings-nav-item is-active" data-settings-pane="general" type="button" aria-current="page" data-i18n="settings.nav.general">${escapeHtml(t('settings.nav.general'))}</button>
         <button class="settings-nav-item" data-settings-pane="accounts" type="button" data-i18n="settings.nav.accounts">${escapeHtml(t('settings.nav.accounts'))}</button>
         <button class="settings-nav-item" data-settings-pane="runtime" type="button" data-i18n="settings.nav.runtime">${escapeHtml(t('settings.nav.runtime'))}</button>
@@ -10252,7 +11546,7 @@ async function openSettingsModal(): Promise<void> {
           <p class="settings-pane-copy" data-i18n="lang.sectionCopy">${escapeHtml(t('lang.sectionCopy'))}</p>
           <div class="setting-field settings-field-wide">
             <span>${escapeHtml(t('lang.section'))}</span>
-            <div class="settings-choice-row" id="settings-language-choices" role="radiogroup" aria-label="${escapeHtml(t('lang.section'))}">
+            <div class="settings-choice-row" id="settings-language-choices" role="radiogroup" aria-label="${escapeHtml(t('lang.section'))}" data-i18n-aria="lang.section">
               ${[['auto', t('lang.autoShort')], ...APP_LOCALES.map((locale) => [locale, localeLabel(locale, currentLocale())] as const)].map(([value, label]) => `<button class="settings-choice${appSettings.uiLanguage === value ? ' is-active' : ''}" type="button" role="radio" aria-checked="${appSettings.uiLanguage === value ? 'true' : 'false'}" data-language="${escapeHtml(value)}">${escapeHtml(label)}</button>`).join('')}
             </div>
             <input type="hidden" id="settings-language" value="${escapeHtml(appSettings.uiLanguage)}"/>
@@ -10267,9 +11561,17 @@ async function openSettingsModal(): Promise<void> {
           <h3 data-i18n="settings.voice">${escapeHtml(t('settings.voice'))}</h3>
           <p class="settings-pane-copy" data-i18n="settings.voiceCopy">${escapeHtml(t('settings.voiceCopy'))}</p>
           <div class="setting-field settings-field-wide">
-            <span data-i18n="settings.microphone">${escapeHtml(t('settings.microphone'))}</span>
+            <span id="settings-microphone-label" data-i18n="settings.microphone">${escapeHtml(t('settings.microphone'))}</span>
             <div class="settings-mic-row">
-              <select class="field-input" id="settings-microphone" aria-label="${escapeHtml(t('settings.microphone'))}"></select>
+              <div class="settings-mic-picker" id="settings-microphone-picker">
+                <select class="settings-microphone-native" id="settings-microphone" tabindex="-1" aria-hidden="true"></select>
+                <button class="settings-mic-trigger" id="settings-microphone-trigger" type="button" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="settings-microphone-menu" aria-labelledby="settings-microphone-label settings-microphone-value">
+                  <span class="settings-mic-trigger-icon">${icons.mic}</span>
+                  <span class="settings-mic-trigger-value" id="settings-microphone-value">${escapeHtml(t('settings.microphoneDefault'))}</span>
+                  <span class="settings-mic-trigger-chevron" aria-hidden="true">${icons.chevron}</span>
+                </button>
+                <div class="settings-mic-menu" id="settings-microphone-menu" role="listbox" aria-labelledby="settings-microphone-label" hidden></div>
+              </div>
               <button class="secondary-button" id="settings-microphone-refresh" type="button" data-i18n="settings.microphoneRefresh">${escapeHtml(t('settings.microphoneRefresh'))}</button>
             </div>
             <small data-i18n="settings.microphoneHint">${escapeHtml(t('settings.microphoneHint'))}</small>
@@ -10364,30 +11666,197 @@ async function openSettingsModal(): Promise<void> {
     closeSettings('accounts');
   });
   const microphoneSelect = document.querySelector<HTMLSelectElement>('#settings-microphone');
+  const microphonePicker = document.querySelector<HTMLElement>('#settings-microphone-picker');
+  const microphoneTrigger = document.querySelector<HTMLButtonElement>('#settings-microphone-trigger');
+  const microphoneMenu = document.querySelector<HTMLElement>('#settings-microphone-menu');
+  const microphoneRefreshButton = document.querySelector<HTMLButtonElement>('#settings-microphone-refresh');
+  let microphoneDevices: MicrophoneOption[] = [];
+  let microphoneMenuOpen = false;
+  let microphoneLoadVersion = 0;
+
+  const microphoneOptionButtons = (): HTMLButtonElement[] => microphoneMenu
+    ? Array.from(microphoneMenu.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+    : [];
+
+  const renderMicrophonePicker = (): void => {
+    if (!microphoneSelect || !microphoneTrigger || !microphoneMenu) return;
+    const selected = microphoneSelect.value.trim();
+    const selectedOption = Array.from(microphoneSelect.options).find((option) => option.value === selected);
+    const selectedLabel = selected
+      ? (selectedOption?.textContent?.trim() || t('settings.microphoneMissing'))
+      : t('settings.microphoneDefault');
+    const valueElement = document.querySelector<HTMLElement>('#settings-microphone-value');
+    if (valueElement) valueElement.textContent = selectedLabel;
+    microphoneTrigger.title = selectedLabel;
+    microphoneTrigger.setAttribute('aria-label', `${t('settings.microphone')}: ${selectedLabel}`);
+
+    const options: Array<MicrophoneOption & { missing?: boolean }> = [
+      { id: '', label: t('settings.microphoneDefault') },
+      ...microphoneDevices,
+    ];
+    if (selected && !microphoneDevices.some((device) => device.id === selected)) {
+      options.push({ id: selected, label: t('settings.microphoneMissing'), missing: true });
+    }
+    microphoneMenu.innerHTML = options.map((option) => {
+      const isSelected = option.id === selected;
+      const missingClass = option.missing ? ' is-missing' : '';
+      return `<button class="settings-mic-option${isSelected ? ' is-selected' : ''}${missingClass}" type="button" role="option" tabindex="-1" aria-selected="${isSelected ? 'true' : 'false'}" data-microphone-id="${escapeHtml(option.id)}" title="${escapeHtml(option.label)}">
+        <span class="settings-mic-option-icon" aria-hidden="true">${icons.mic}</span>
+        <span class="settings-mic-option-copy"><strong>${escapeHtml(option.label)}</strong></span>
+        <span class="settings-mic-option-check" aria-hidden="true">${isSelected ? '✓' : ''}</span>
+      </button>`;
+    }).join('');
+  };
+
+  const closeMicrophoneMenu = (restoreFocus = false): void => {
+    microphoneMenuOpen = false;
+    microphonePicker?.classList.remove('is-open');
+    microphoneTrigger?.setAttribute('aria-expanded', 'false');
+    if (microphoneMenu) microphoneMenu.hidden = true;
+    if (restoreFocus) microphoneTrigger?.focus();
+  };
+
+  const focusMicrophoneOption = (index: number): void => {
+    const options = microphoneOptionButtons();
+    if (!options.length) return;
+    const nextIndex = Math.max(0, Math.min(index, options.length - 1));
+    options[nextIndex]?.focus();
+  };
+
+  const openMicrophoneMenu = (focusLast = false): void => {
+    if (!microphoneTrigger || !microphoneMenu || microphoneRefreshButton?.disabled) return;
+    microphoneMenuOpen = true;
+    microphonePicker?.classList.add('is-open');
+    microphoneTrigger.setAttribute('aria-expanded', 'true');
+    microphoneMenu.hidden = false;
+    const options = microphoneOptionButtons();
+    const selectedIndex = options.findIndex((option) => option.classList.contains('is-selected'));
+    focusMicrophoneOption(focusLast ? options.length - 1 : Math.max(0, selectedIndex));
+  };
+
+  const selectMicrophone = (id: string): void => {
+    if (!microphoneSelect) return;
+    const value = id.trim();
+    if (!Array.from(microphoneSelect.options).some((option) => option.value === value)) return;
+    microphoneSelect.value = value;
+    setSelectedMicrophoneId(value);
+    renderMicrophonePicker();
+    closeMicrophoneMenu();
+    microphoneTrigger?.focus();
+  };
+
+  microphoneTrigger?.addEventListener('click', () => {
+    if (microphoneMenuOpen) closeMicrophoneMenu(true);
+    else openMicrophoneMenu();
+  });
+  microphoneTrigger?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && microphoneMenuOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMicrophoneMenu(true);
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!microphoneMenuOpen) {
+        openMicrophoneMenu(event.key === 'ArrowUp');
+        const options = microphoneOptionButtons();
+        const selectedIndex = options.findIndex((option) => option.classList.contains('is-selected'));
+        focusMicrophoneOption(selectedIndex + (event.key === 'ArrowDown' ? 1 : -1));
+      }
+      else {
+        const options = microphoneOptionButtons();
+        const selectedIndex = options.findIndex((option) => option === document.activeElement);
+        focusMicrophoneOption(selectedIndex + (event.key === 'ArrowDown' ? 1 : -1));
+      }
+      return;
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      if (!microphoneMenuOpen) openMicrophoneMenu(event.key === 'End');
+      else focusMicrophoneOption(event.key === 'Home' ? 0 : microphoneOptionButtons().length - 1);
+      return;
+    }
+    if ((event.key === 'Enter' || event.key === ' ') && !microphoneMenuOpen) {
+      event.preventDefault();
+      openMicrophoneMenu();
+    }
+  });
+  microphoneMenu?.addEventListener('click', (event) => {
+    const option = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="option"]');
+    if (option) selectMicrophone(option.dataset.microphoneId ?? '');
+  });
+  microphoneMenu?.addEventListener('keydown', (event) => {
+    const options = microphoneOptionButtons();
+    const activeIndex = options.findIndex((option) => option === document.activeElement);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      focusMicrophoneOption(activeIndex + (event.key === 'ArrowDown' ? 1 : -1));
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      focusMicrophoneOption(event.key === 'Home' ? 0 : options.length - 1);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMicrophoneMenu(true);
+    } else if ((event.key === 'Enter' || event.key === ' ') && activeIndex >= 0) {
+      event.preventDefault();
+      selectMicrophone(options[activeIndex]?.dataset.microphoneId ?? '');
+    } else if (event.key === 'Tab') {
+      window.setTimeout(() => closeMicrophoneMenu(), 0);
+    }
+  });
+  const onMicrophoneOutsidePointerDown = (event: PointerEvent): void => {
+    if (microphoneMenuOpen && microphonePicker && !microphonePicker.contains(event.target as Node)) closeMicrophoneMenu();
+  };
+  document.addEventListener('pointerdown', onMicrophoneOutsidePointerDown);
+
+  const setMicrophoneLoading = (loading: boolean): void => {
+    microphoneRefreshButton?.classList.toggle('is-loading', loading);
+    if (microphoneRefreshButton) {
+      microphoneRefreshButton.disabled = loading;
+      microphoneRefreshButton.setAttribute('aria-busy', String(loading));
+      microphoneRefreshButton.textContent = t('settings.microphoneRefresh');
+    }
+  };
+
   const fillMicrophones = async (): Promise<void> => {
     if (!microphoneSelect) return;
-    const selected = microphoneSelect.value || appSettings.microphoneId;
-    const devices = await listMicrophones();
-    const options = [`<option value="">${escapeHtml(t('settings.microphoneDefault'))}</option>`];
-    for (const device of devices) {
-      options.push(`<option value="${escapeHtml(device.id)}"${device.id === selected ? ' selected' : ''}>${escapeHtml(device.label)}</option>`);
+    const selected = microphoneSelect.options.length ? microphoneSelect.value : appSettings.microphoneId;
+    const loadVersion = ++microphoneLoadVersion;
+    closeMicrophoneMenu();
+    setMicrophoneLoading(true);
+    try {
+      const devices = await listMicrophones();
+      if (loadVersion !== microphoneLoadVersion) return;
+      microphoneDevices = devices;
+      const options = [`<option value="">${escapeHtml(t('settings.microphoneDefault'))}</option>`];
+      for (const device of devices) {
+        options.push(`<option value="${escapeHtml(device.id)}"${device.id === selected ? ' selected' : ''}>${escapeHtml(device.label)}</option>`);
+      }
+      if (selected && !devices.some((device) => device.id === selected)) {
+        options.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(t('settings.microphoneMissing'))}</option>`);
+      }
+      microphoneSelect.innerHTML = options.join('');
+      const hasSelected = Array.from(microphoneSelect.options).some((option) => option.value === selected);
+      microphoneSelect.value = selected && hasSelected ? selected : '';
+      renderMicrophonePicker();
+    } finally {
+      if (loadVersion === microphoneLoadVersion) setMicrophoneLoading(false);
     }
-    if (selected && !devices.some((device) => device.id === selected)) {
-      options.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(t('settings.microphoneMissing'))}</option>`);
-    }
-    microphoneSelect.innerHTML = options.join('');
-    const hasSelected = Array.from(microphoneSelect.options).some((option) => option.value === selected);
-    microphoneSelect.value = selected && hasSelected ? selected : '';
   };
-  void fillMicrophones();
-  document.querySelector('#settings-microphone-refresh')?.addEventListener('click', () => {
-    void fillMicrophones().catch((error) => showToast(String(error), true));
+  void fillMicrophones().catch((error) => {
+    showErrorToast(error);
+  });
+  microphoneRefreshButton?.addEventListener('click', () => {
+    void fillMicrophones().catch((error) => showErrorToast(error));
   });
   microphoneSelect?.addEventListener('change', () => {
     setSelectedMicrophoneId(microphoneSelect.value.trim());
+    renderMicrophonePicker();
   });
   const onMicrophoneDevicesChanged = (): void => {
-    void fillMicrophones();
+    void fillMicrophones().catch((error) => showErrorToast(error));
   };
   navigator.mediaDevices?.addEventListener?.('devicechange', onMicrophoneDevicesChanged);
   document.querySelector('#settings-accounts-list')?.addEventListener('click', (event) => {
@@ -10397,7 +11866,10 @@ async function openSettingsModal(): Promise<void> {
   });
 
   const closeSettings = (next: 'idle' | 'accounts' = 'idle'): void => {
+    refreshOpenSettingsI18n = null;
     window.removeEventListener('keydown', onSettingsKey);
+    document.removeEventListener('pointerdown', onMicrophoneOutsidePointerDown);
+    closeMicrophoneMenu();
     navigator.mediaDevices?.removeEventListener?.('devicechange', onMicrophoneDevicesChanged);
     document.body.classList.remove('settings-open');
     if (languagePreferenceDraft !== null) {
@@ -10413,6 +11885,10 @@ async function openSettingsModal(): Promise<void> {
       modalRoot.innerHTML = '';
       scheduleWebviewSync();
     }
+  };
+  refreshOpenSettingsI18n = () => {
+    renderMicrophonePicker();
+    if (microphoneRefreshButton) microphoneRefreshButton.textContent = t('settings.microphoneRefresh');
   };
   function onSettingsKey(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
@@ -10654,10 +12130,12 @@ function openMainMenu(): void {
             <div class="main-menu-section-heading"><span>${escapeHtml(t('menu.workspace'))}</span><small>${escapeHtml(workspaceCount)}</small></div>
             ${currentWorkspace}
             <div class="workspace-browser-picker main-menu-picker">
-              <button class="secondary-button" id="main-menu-connect-github" type="button">${icons.github}<span>${escapeHtml(t('menu.pickFolder'))}</span></button>
+              <button class="primary-button" id="main-menu-connect-github" type="button">${icons.github}<span>${escapeHtml(t('menu.pickFolder'))}</span></button>
               <small>${escapeHtml(t('menu.pickHint'))}</small>
             </div>
             <div class="workspace-list-modal main-menu-workspace-shelf" id="main-menu-workspace-list">${workspaceMenuListHtml()}</div>
+          </section>
+          <section class="main-menu-deck">
             <div class="main-menu-section-heading main-menu-actions-heading"><span>${escapeHtml(t('menu.startHere'))}</span><small>${escapeHtml(t('menu.startHint'))}</small></div>
             <div class="main-menu-actions">
               <button class="main-menu-action" id="main-menu-signin" type="button"><span class="panel-icon panel-icon-orange">${icons.sparkle}</span><span><strong>${escapeHtml(t('menu.aiAccounts'))}</strong><small>${escapeHtml(t('menu.aiHint'))}</small></span>${icons.chevron}</button>
@@ -10665,18 +12143,23 @@ function openMainMenu(): void {
               <button class="main-menu-action" id="main-menu-clone" type="button"><span class="panel-icon panel-icon-gray">${icons.external}</span><span><strong>${escapeHtml(t('menu.clone'))}</strong><small>${escapeHtml(t('menu.cloneHint'))}</small></span>${icons.chevron}</button>
               <button class="main-menu-action" id="main-menu-settings" type="button"><span class="panel-icon panel-icon-blue">${icons.settings}</span><span><strong>${escapeHtml(t('common.settings'))}</strong><small>${escapeHtml(t('menu.settingsHint'))}</small></span>${icons.chevron}</button>
             </div>
-          </section>
-          <section class="main-menu-deck">
-            <div class="main-menu-github">
-              <div class="main-menu-section-heading main-menu-github-heading">
-                <span id="main-menu-github-count">${escapeHtml(t('menu.github'))}</span>
-                <small id="main-menu-github-account">${escapeHtml(githubAuth.connected ? `@${githubAuth.login ?? 'github'}` : t('menu.githubNeedAccount'))}</small>
+            <details class="main-menu-github-panel"${githubAuth.connected ? '' : ' open'}>
+              <summary class="main-menu-github-summary">
+                <span class="main-menu-github-summary-icon">${icons.github}</span>
+                <span class="main-menu-github-summary-copy"><strong id="main-menu-github-count">${escapeHtml(t('menu.github'))}</strong><small id="main-menu-github-account">${escapeHtml(githubAuth.connected ? `@${githubAuth.login ?? 'github'}` : t('menu.githubNeedAccount'))}</small></span>
+                <span class="main-menu-github-summary-chevron" aria-hidden="true">⌄</span>
+              </summary>
+              <div class="main-menu-github">
+                <div class="main-menu-section-heading main-menu-github-heading">
+                  <span>${escapeHtml(t('menu.github'))}</span>
+                  <small>${escapeHtml(t('menu.pickHint'))}</small>
+                </div>
+                <div class="github-repository-list main-menu-github-list" id="main-menu-github-list">${githubRepositoryRowsHtml()}</div>
+                ${githubAuth.connected
+                  ? `<button class="secondary-button main-menu-github-refresh" id="main-menu-github-refresh" type="button">${escapeHtml(t('menu.githubRefresh'))}</button>`
+                  : `<button class="primary-button" id="main-menu-github-connect" type="button">${icons.github}<span>${escapeHtml(t('menu.githubConnect'))}</span></button>`}
               </div>
-              <div class="github-repository-list main-menu-github-list" id="main-menu-github-list">${githubRepositoryRowsHtml()}</div>
-              ${githubAuth.connected
-                ? `<button class="secondary-button main-menu-github-refresh" id="main-menu-github-refresh" type="button">${escapeHtml(t('menu.githubRefresh'))}</button>`
-                : `<button class="primary-button" id="main-menu-github-connect" type="button">${icons.github}<span>${escapeHtml(t('menu.githubConnect'))}</span></button>`}
-            </div>
+            </details>
           </section>
         </div>
       </div>
@@ -10734,7 +12217,7 @@ function openMainMenu(): void {
   });
   void loadGithubRepositories();
   document.querySelector<HTMLButtonElement>('#main-menu-signin')?.addEventListener('click', () => { void openAccountsModal(); });
-  document.querySelector<HTMLButtonElement>('#main-menu-create')?.addEventListener('click', () => openWorkspaceModal(true, true));
+  document.querySelector<HTMLButtonElement>('#main-menu-create')?.addEventListener('click', () => openCreateRepositoryModal(true, true));
   document.querySelector<HTMLButtonElement>('#main-menu-clone')?.addEventListener('click', () => openCloneRepositoryModal(true, true));
   document.querySelector<HTMLButtonElement>('#main-menu-settings')?.addEventListener('click', openSettingsModal);
   (document.querySelector<HTMLButtonElement>('#main-menu-current') ?? document.querySelector<HTMLButtonElement>('#main-menu-connect-github'))?.focus();
@@ -10954,7 +12437,56 @@ function openCommandPalette(): void {
   paletteInput.focus();
 }
 
-async function openSearchModal(): Promise<void> {
+function openComposerContextPicker(): void {
+  const workspace = getWorkspace();
+  if (!workspace) {
+    showToast(t('toast.needWorkspaceChat'), true);
+    return;
+  }
+  const candidates: ComposerContextFile[] = [];
+  for (const file of [...openFileTabs, ...composerContextFiles]) {
+    if (!file.path.trim() || !file.root.trim()) continue;
+    if (!candidates.some((item) => composerContextFileKey(item) === composerContextFileKey(file))) candidates.push(file);
+  }
+  const candidateMarkup = candidates.length
+    ? candidates.map((file) => {
+        const checked = composerContextFiles.some((item) => composerContextFileKey(item) === composerContextFileKey(file));
+        const name = file.path.split('/').pop() ?? file.path;
+        return `<label class="composer-context-item"><input type="checkbox" data-composer-context-input="true" data-context-path="${escapeHtml(file.path)}" data-context-root="${escapeHtml(file.root)}"${checked ? ' checked' : ''}><span class="composer-context-item-copy"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(file.path)}</small></span></label>`;
+      }).join('')
+    : `<div class="composer-context-empty">${tx('chrome.selectFile')}</div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" id="composer-context-backdrop"><section class="modal-panel composer-context-modal" role="dialog" aria-modal="true" aria-labelledby="composer-context-title" aria-describedby="composer-context-description"><div class="modal-heading"><div><span class="eyebrow">${tx('chrome.openFiles')}</span><h2 id="composer-context-title">${tx('chrome.attach')}</h2></div><button class="modal-close" id="composer-context-close" type="button" aria-label="${tx('common.close')}" title="${tx('common.close')}">${icons.close}</button></div><p class="modal-copy" id="composer-context-description">${tx('chrome.selectFile')}</p><div class="composer-context-list">${candidateMarkup}</div><div class="modal-actions"><button class="secondary-button" id="composer-context-search" type="button">${icons.search}<span>${tx('common.search')}</span></button><button class="primary-button" id="composer-context-done" type="button">${tx('common.close')}</button></div></section></div>`;
+  const close = (): void => {
+    document.removeEventListener('keydown', onKey);
+    modalRoot.innerHTML = '';
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    close();
+  };
+  document.querySelector<HTMLButtonElement>('#composer-context-close')?.addEventListener('click', close);
+  document.querySelector<HTMLButtonElement>('#composer-context-done')?.addEventListener('click', close);
+  document.querySelector<HTMLButtonElement>('#composer-context-search')?.addEventListener('click', () => {
+    close();
+    void openSearchModal({ attach: true });
+  });
+  document.querySelector<HTMLElement>('#composer-context-backdrop')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) close();
+  });
+  document.querySelectorAll<HTMLInputElement>('[data-composer-context-input]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const path = input.dataset.contextPath;
+      const root = input.dataset.contextRoot;
+      if (!path || !root) return;
+      if (input.checked) addComposerContextFile({ path, root });
+      else removeComposerContextFile({ path, root });
+    });
+  });
+  document.addEventListener('keydown', onKey);
+}
+
+async function openSearchModal(options: { attach?: boolean } = {}): Promise<void> {
   const workspace = getWorkspace();
   if (!workspace) {
     showToast(t('toast.needWorkspaceSearch'), true);
@@ -10980,6 +12512,11 @@ async function openSearchModal(): Promise<void> {
         const path = button.dataset.searchPath;
         const line = Number(button.dataset.searchLine ?? '1');
         if (!path) return;
+        if (options.attach) {
+          addComposerContextFile({ path, root: activeProjectRoot() ?? workspace.path });
+          close();
+          return;
+        }
         close();
         void openWorkspaceFile(path).then(() => { codeEditor?.revealLineInCenter(line); codeEditor?.setPosition({ lineNumber: line, column: 1 }); });
       }));
@@ -11016,7 +12553,7 @@ function bindMainMenuWindowControls(): void {
 
 function bindWindowControls(): void {
   const currentWindow = getCurrentWindow();
-  const safe = (label: string, action: () => Promise<void>): void => { void action().catch((error: unknown) => showToast(`${label}: ${String(error)}`, true)); };
+  const safe = (label: string, action: () => Promise<void>): void => { void action().catch((error: unknown) => showErrorToast(`${label}: ${errorDetail(error)}`)); };
   const titlebar = document.querySelector<HTMLElement>('.titlebar');
   if (!titlebar) return;
   titlebar.addEventListener('click', (event) => {
@@ -11213,6 +12750,7 @@ function bindInteractions(): void {
     renderComposerUsage();
     renderComposerModel();
     renderComposerAccount();
+    renderComposerPermissions('a');
     refreshSlashCommandMenu('a');
   });
   document.querySelector<HTMLButtonElement>('#composer-account')?.addEventListener('click', (event) => {
@@ -11238,6 +12776,14 @@ function bindInteractions(): void {
     if (!effort || !account || !selected || !selected.option.efforts.includes(effort)) return;
     setSelectedChoice(account.id, selected.option.id, effort);
   });
+  document.querySelector<HTMLButtonElement>('#composer-permissions')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (document.querySelector('.agent-permissions-menu')) {
+      closeAgentPermissionsPicker();
+      return;
+    }
+    openAgentPermissionsPicker('a');
+  });
   document.querySelector<HTMLButtonElement>('#composer-usage')?.addEventListener('click', () => { void openAccountsModal(); });
   resizeNativeAgentInput();
   syncComposerPlaceholder();
@@ -11253,7 +12799,7 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#titlebar-composer-toggle')?.addEventListener('click', () => { toggleComposer(); });
   document.querySelector<HTMLButtonElement>('#titlebar-focus-mode')?.addEventListener('click', toggleFocusMode);
   document.querySelector<HTMLButtonElement>('#titlebar-zen-ai')?.addEventListener('click', toggleZenAi);
-  document.querySelector<HTMLButtonElement>('#ai-attach-context')?.addEventListener('click', () => { void openSearchModal(); });
+  document.querySelector<HTMLButtonElement>('#ai-attach-context')?.addEventListener('click', openComposerContextPicker);
   const composerMic = document.querySelector<HTMLButtonElement>('#composer-mic');
   const composerSttLang = document.querySelector<HTMLSelectElement>('#composer-stt-lang');
   const composerTts = document.querySelector<HTMLButtonElement>('#composer-tts');
@@ -11298,6 +12844,11 @@ function bindInteractions(): void {
     speakAgentReply();
   });
   document.querySelector<HTMLButtonElement>('#composer-accounts')?.addEventListener('click', () => { void openAccountsModal(); });
+  document.querySelector<HTMLButtonElement>('#composer-memory')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openAgentMemoryPanel('a');
+  });
+  syncComposerMemoryButtons();
   document.querySelector<HTMLButtonElement>('#composer-changes')?.addEventListener('click', () => { openComposerGitReview(); });
   document.querySelector<HTMLButtonElement>('#composer-files-changed-toggle')?.addEventListener('click', () => {
     composerFilesChangedExpanded = !composerFilesChangedExpanded;
@@ -11371,6 +12922,10 @@ function bindInteractions(): void {
     event.stopPropagation();
     toggleAccountMenu();
   });
+  document.querySelector<HTMLButtonElement>('#titlebar-notifications')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleNotificationMenu();
+  });
   document.querySelector<HTMLButtonElement>('#titlebar-inspector-toggle')?.addEventListener('click', toggleInspector);
   document.querySelector<HTMLButtonElement>('#split-pane-btn-left')?.addEventListener('click', openSessionMenu);
   document.querySelector<HTMLButtonElement>('#split-pane-btn-right')?.addEventListener('click', openSessionMenu);
@@ -11397,7 +12952,7 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#floating-layout-toggle')?.addEventListener('click', toggleInspector);
   document.querySelector<HTMLButtonElement>('#filter-names-btn')?.addEventListener('click', () => setInspectorFilterMode('names'));
   document.querySelector<HTMLButtonElement>('#filter-content-btn')?.addEventListener('click', () => setInspectorFilterMode('content'));
-  commandForm.addEventListener('submit', async (event) => { event.preventDefault(); const command = commandInput.value.trim(); if (!command || !activeSessionId || !getWorkspace()) { showToast(t('toast.needWorkspaceShell'), true); return; } try { await writeToSession(activeSessionId, `${command}\r`); commandInput.value = ''; terminals.get(activeSessionId)?.terminal.focus(); } catch (error) { showToast(String(error), true); } });
+  commandForm.addEventListener('submit', async (event) => { event.preventDefault(); const command = commandInput.value.trim(); if (!command || !activeSessionId || !getWorkspace()) { showToast(t('toast.needWorkspaceShell'), true); return; } try { await writeToSession(activeSessionId, `${command}\r`); commandInput.value = ''; terminals.get(activeSessionId)?.terminal.focus(); } catch (error) { showErrorToast(error); } });
   document.querySelector<HTMLButtonElement>('#summary-sessions')?.addEventListener('click', () => {
     setView('terminals');
     terminalArea.scrollIntoView({ block: 'nearest' });
@@ -11417,7 +12972,7 @@ function bindInteractions(): void {
       showToast(t('toast.noActiveFolder'), true);
       return;
     }
-    void invoke('reveal_path', { path }).catch((error) => showToast(String(error), true));
+    void invoke('reveal_path', { path }).catch((error) => showErrorToast(error));
   });
   notesInput.addEventListener('input', scheduleNoteSave);
   workspaceInspector.addEventListener('click', (event) => {
@@ -11441,11 +12996,11 @@ function bindInteractions(): void {
     if (!workspace) return;
     const root = gitActionRoot() ?? workspace.path;
     if (stagePath) {
-      void invoke('stage', { path: root, paths: [stagePath] }).then(() => refreshGitPanel()).catch((error) => showToast(String(error), true));
+      void invoke('stage', { path: root, paths: [stagePath] }).then(() => refreshGitPanel()).catch((error) => showErrorToast(error));
       return;
     }
     if (unstagePath) {
-      void invoke('unstage', { path: root, paths: [unstagePath] }).then(() => refreshGitPanel()).catch((error) => showToast(String(error), true));
+      void invoke('unstage', { path: root, paths: [unstagePath] }).then(() => refreshGitPanel()).catch((error) => showErrorToast(error));
       return;
     }
     if (discardPath) {
@@ -11455,7 +13010,7 @@ function bindInteractions(): void {
           await invoke('discard', { path: root, paths: [discardPath] });
           await refreshGitPanel();
         } catch (error) {
-          showToast(String(error), true);
+          showErrorToast(error);
         }
       })();
       return;
@@ -11486,8 +13041,9 @@ function bindInteractions(): void {
   });
   fileTree.addEventListener('contextmenu', (event) => {
     const target = event.target as HTMLElement;
-    const relative = target.closest<HTMLElement>('[data-file-dir], [data-file-path]')?.dataset.fileDir ?? target.closest<HTMLElement>('[data-file-path]')?.dataset.filePath;
-    if (relative) openFileContextMenu(event, relative);
+    const item = target.closest<HTMLElement>('[data-file-dir], [data-file-path]');
+    const relative = item?.dataset.fileDir ?? item?.dataset.filePath;
+    if (relative) openFileContextMenu(event, relative, item?.dataset.fileDir !== undefined);
   });
   editorContent.addEventListener('input', () => {
     openFileDirty = true;
@@ -11517,11 +13073,11 @@ function bindInteractions(): void {
     const workspace = getWorkspace();
     if (!workspace) return;
     if (stagePath) {
-      void invoke('stage', { path: gitActionRoot() ?? workspace.path, paths: [stagePath] }).then(() => refreshGitPanel()).catch((error) => showToast(String(error), true));
+      void invoke('stage', { path: gitActionRoot() ?? workspace.path, paths: [stagePath] }).then(() => refreshGitPanel()).catch((error) => showErrorToast(error));
       return;
     }
     if (unstagePath) {
-      void invoke('unstage', { path: gitActionRoot() ?? workspace.path, paths: [unstagePath] }).then(() => refreshGitPanel()).catch((error) => showToast(String(error), true));
+      void invoke('unstage', { path: gitActionRoot() ?? workspace.path, paths: [unstagePath] }).then(() => refreshGitPanel()).catch((error) => showErrorToast(error));
       return;
     }
     if (discardPath) {
@@ -11531,7 +13087,7 @@ function bindInteractions(): void {
           await invoke('discard', { path: gitActionRoot() ?? workspace.path, paths: [discardPath] });
           await refreshGitPanel();
         } catch (error) {
-          showToast(String(error), true);
+          showErrorToast(error);
         }
       })();
       return;
@@ -11583,7 +13139,7 @@ function bindInteractions(): void {
         await invoke('worktree_remove', { path: workspace.path, worktreePath: path });
         await refreshWorktrees();
       } catch (error) {
-        showToast(String(error), true);
+        showErrorToast(error);
       }
     })();
   });
@@ -11638,7 +13194,7 @@ function bindInteractions(): void {
     if (id) openSessionContextMenu(event, id);
   });
   toolTabs.addEventListener('click', (event) => { const target = event.target as HTMLElement; const closeId = target.closest<HTMLElement>('[data-close-tool]')?.dataset.closeTool; if (closeId) { event.stopPropagation(); closeTool(closeId); return; } const toolId = target.closest<HTMLElement>('[data-tool-id]')?.dataset.toolId; if (toolId) bringToolToFront(toolId); });
-  toolStage.addEventListener('click', (event) => { const target = event.target as HTMLElement; const closeId = target.closest<HTMLElement>('[data-close-tool]')?.dataset.closeTool; if (closeId) closeTool(closeId); const refreshId = target.closest<HTMLElement>('[data-tool-refresh]')?.dataset.toolRefresh; if (refreshId) refreshTool(refreshId); const externalId = target.closest<HTMLElement>('[data-tool-external]')?.dataset.toolExternal; const panel = externalId ? browserPanels.get(externalId) : undefined; if (panel) void invoke('open_external_url', { url: panel.url }).catch((error) => showToast(String(error), true)); });
+  toolStage.addEventListener('click', (event) => { const target = event.target as HTMLElement; const closeId = target.closest<HTMLElement>('[data-close-tool]')?.dataset.closeTool; if (closeId) closeTool(closeId); const refreshId = target.closest<HTMLElement>('[data-tool-refresh]')?.dataset.toolRefresh; if (refreshId) refreshTool(refreshId); const externalId = target.closest<HTMLElement>('[data-tool-external]')?.dataset.toolExternal; const panel = externalId ? browserPanels.get(externalId) : undefined; if (panel) void invoke('open_external_url', { url: panel.url }).catch((error) => showErrorToast(error)); });
   document.querySelector<HTMLButtonElement>('#tool-empty-open')?.addEventListener('click', openBrowserMenu);
   endpointStrip.addEventListener('click', (event) => {
     const url = (event.target as HTMLElement).closest<HTMLElement>('[data-open-endpoint]')?.dataset.openEndpoint;
@@ -11663,7 +13219,13 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#tools-new-browser')?.addEventListener('click', openBrowserMenu);
   document.querySelector<HTMLButtonElement>('#design-mode-toggle')?.addEventListener('click', () => toggleDesignMode());
   document.querySelector<HTMLElement>('#design-toolbar')?.addEventListener('click', (event) => {
-    const tool = (event.target as HTMLElement).closest<HTMLElement>('[data-design-tool]')?.dataset.designTool;
+    const target = event.target as HTMLElement;
+    const viewport = target.closest<HTMLElement>('[data-preview-viewport]')?.dataset.previewViewport;
+    if (isPreviewViewportMode(viewport)) {
+      setPreviewViewportMode(viewport);
+      return;
+    }
+    const tool = target.closest<HTMLElement>('[data-design-tool]')?.dataset.designTool;
     if (tool === 'select' || tool === 'draw') {
       designTool = tool;
       renderDesignToolbar();
@@ -11711,7 +13273,7 @@ function bindInteractions(): void {
   document.querySelector<HTMLButtonElement>('#terminal-new')?.addEventListener('click', openSessionMenu);
   document.querySelector<HTMLButtonElement>('#terminal-empty-new')?.addEventListener('click', () => { void createSession(); });
   document.querySelector<HTMLButtonElement>('#workspace-lock-open')?.addEventListener('click', () => openMainMenu());
-  document.querySelector<HTMLButtonElement>('#workspace-lock-create')?.addEventListener('click', () => openWorkspaceModal(false, true));
+  document.querySelector<HTMLButtonElement>('#workspace-lock-create')?.addEventListener('click', () => openCreateRepositoryModal(false, true));
   document.querySelector<HTMLButtonElement>('#open-command-palette')!.addEventListener('click', openCommandPalette);
   document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => button.addEventListener('click', () => {
     setView(button.dataset.view ?? 'overview');
@@ -11763,17 +13325,39 @@ function bindInteractions(): void {
   window.addEventListener('resize', () => {
     syncResponsiveLayout();
     scheduleLayoutSync();
+    if (notificationsMenuRoot.innerHTML) positionNotificationsMenu();
   });
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && accountMenuRoot.innerHTML) {
-      event.preventDefault();
-      closeAccountMenu();
-      return;
+    if (event.key === 'Escape') {
+      if (notificationsMenuRoot.innerHTML) {
+        event.preventDefault();
+        closeNotificationMenu();
+        return;
+      }
+      if (accountMenuRoot.innerHTML) {
+        event.preventDefault();
+        closeAccountMenu();
+        return;
+      }
+      const escapeTarget = event.target instanceof HTMLElement ? event.target : null;
+      if (designModeEnabled && (!escapeTarget || !escapeTarget.matches('input, textarea, [contenteditable="true"]'))) {
+        event.preventDefault();
+        void setDesignMode(false);
+        return;
+      }
     }
     if (mainMenuOpen) return;
     if (terminalOwnsKeyboard(event) && !(event.ctrlKey && event.key === 'Tab')) return;
     const key = event.key.toLowerCase();
     const primary = primaryModifier(event);
+    const editableTarget = event.target instanceof HTMLElement && event.target.matches('input, textarea, [contenteditable="true"]');
+    if (designModeEnabled && !editableTarget && (key === '1' || key === '2')) {
+      event.preventDefault();
+      designTool = key === '1' ? 'select' : 'draw';
+      renderDesignToolbar();
+      void injectDesignPicker();
+      return;
+    }
     if (primary && event.shiftKey && key === 'd') { event.preventDefault(); toggleDesignMode(); return; }
     if (primary && event.shiftKey && key === 'p') { event.preventDefault(); openCommandPalette(); return; }
     if (primary && event.altKey && key === 'z') { event.preventDefault(); toggleZenAi(); return; }
@@ -11814,6 +13398,7 @@ function refreshPersistedUi(): void {
   loadSettings();
   loadComesSession();
   loadSelectedAgentModels();
+  loadSelectedAgentPermissions();
   loadWorkspaces();
   loadLayout();
   loadSessionDefinitions();
@@ -11848,10 +13433,10 @@ function loadBootLogo(): Promise<HTMLImageElement> {
   });
 }
 
-function explodeBootLogo(image: HTMLImageElement, canvas: HTMLCanvasElement): Promise<void> {
+function explodeBootLogo(image: HTMLImageElement, canvas: HTMLCanvasElement, shouldStop: () => boolean = () => false): Promise<void> {
   const ctx = canvas.getContext('2d');
   if (!ctx) return Promise.resolve();
-  const sample = 168;
+  const sample = 192;
   const offscreen = document.createElement('canvas');
   offscreen.width = sample;
   offscreen.height = sample;
@@ -11865,13 +13450,28 @@ function explodeBootLogo(image: HTMLImageElement, canvas: HTMLCanvasElement): Pr
   canvas.width = width;
   canvas.height = height;
   canvas.hidden = false;
+  ctx.imageSmoothingEnabled = false;
   const logoBox = image.getBoundingClientRect();
   const originX = (logoBox.left + logoBox.width / 2) * dpr;
   const originY = (logoBox.top + logoBox.height / 2) * dpr;
   const logoScale = (Math.max(logoBox.width, logoBox.height) / sample) * dpr;
   const reach = Math.hypot(window.innerWidth, window.innerHeight) * dpr;
-  const particles: { x: number; y: number; vx: number; vy: number; size: number; r: number; g: number; b: number; a: number }[] = [];
-  const step = 4;
+  type BootParticle = {
+    x: number;
+    y: number;
+    dx: number;
+    dy: number;
+    gravity: number;
+    size: number;
+    r: number;
+    g: number;
+    b: number;
+    a: number;
+    delay: number;
+    trail: number;
+  };
+  const particles: BootParticle[] = [];
+  const step = 3;
   const cx = sample / 2;
   const cy = sample / 2;
   for (let y = 0; y < sample; y += step) {
@@ -11882,41 +13482,68 @@ function explodeBootLogo(image: HTMLImageElement, canvas: HTMLCanvasElement): Pr
       if (pixels[index] < 16 && pixels[index + 1] < 16 && pixels[index + 2] < 22) continue;
       const dx = x - cx;
       const dy = y - cy;
-      const dist = Math.hypot(dx, dy) || 1;
-      const burst = 0.55 + Math.random() * 1.15;
+      const dist = Math.hypot(dx, dy);
+      const angle = (dist < 1 ? Math.random() * Math.PI * 2 : Math.atan2(dy, dx)) + (Math.random() - 0.5) * 0.24;
+      const directionX = Math.cos(angle);
+      const directionY = Math.sin(angle);
+      const travel = reach * (0.24 + Math.random() * 0.5) * (0.68 + Math.min(1, dist / (sample * 0.72)) * 0.32);
       particles.push({
         x: originX + dx * logoScale,
         y: originY + dy * logoScale,
-        vx: (dx / dist) * burst * reach,
-        vy: ((dy / dist) * burst - 0.08) * reach,
-        size: Math.max(1.4, step * logoScale * 0.72),
+        dx: directionX * travel,
+        dy: directionY * travel + (Math.random() - 0.5) * reach * 0.08,
+        gravity: reach * (0.012 + Math.random() * 0.036),
+        size: Math.max(1.1, step * logoScale * (0.58 + Math.random() * 0.24)),
         r: pixels[index],
         g: pixels[index + 1],
         b: pixels[index + 2],
         a: alpha / 255,
+        delay: Math.random() * 0.12,
+        trail: 0.18 + Math.random() * 0.18,
       });
     }
   }
-  const duration = 1100;
+  const duration = 1280;
   const started = performance.now();
   return new Promise((resolve) => {
+    const finish = (): void => {
+      ctx.clearRect(0, 0, width, height);
+      canvas.hidden = true;
+      resolve();
+    };
     const frame = (now: number): void => {
+      if (shouldStop()) {
+        finish();
+        return;
+      }
       const elapsed = now - started;
       const t = Math.min(1, elapsed / duration);
       ctx.clearRect(0, 0, width, height);
       for (const particle of particles) {
-        const px = particle.x + particle.vx * t;
-        const py = particle.y + particle.vy * t + 90 * dpr * t * t;
-        ctx.fillStyle = `rgba(${particle.r},${particle.g},${particle.b},${particle.a * (1 - t)})`;
-        ctx.fillRect(px, py, particle.size, particle.size);
+        const localT = Math.max(0, Math.min(1, (t - particle.delay) / (1 - particle.delay)));
+        if (localT <= 0) {
+          ctx.fillStyle = `rgba(${particle.r},${particle.g},${particle.b},${particle.a})`;
+          ctx.fillRect(particle.x, particle.y, particle.size, particle.size);
+          continue;
+        }
+        const burstT = 1 - Math.pow(1 - localT, 3);
+        const gravityT = localT * localT;
+        const px = particle.x + particle.dx * burstT;
+        const py = particle.y + particle.dy * burstT + particle.gravity * gravityT;
+        const fadeT = Math.max(0, (localT - 0.5) / 0.5);
+        const opacity = particle.a * (1 - fadeT * fadeT);
+        const size = Math.max(0.65, particle.size * (1 - localT * 0.42));
+        if (opacity <= 0) continue;
+        ctx.fillStyle = `rgba(${particle.r},${particle.g},${particle.b},${opacity * particle.trail})`;
+        ctx.fillRect(px - particle.dx * 0.012, py - particle.dy * 0.012, size * 0.72, size * 0.72);
+        ctx.fillStyle = `rgba(${particle.r},${particle.g},${particle.b},${opacity})`;
+        ctx.fillRect(px, py, size, size);
       }
       if (t < 1) {
         window.requestAnimationFrame(frame);
         return;
       }
-      ctx.clearRect(0, 0, width, height);
-      canvas.hidden = true;
-      resolve();
+      finish();
     };
     window.requestAnimationFrame(frame);
   });
@@ -11942,7 +13569,7 @@ async function playBootSplash(): Promise<void> {
     await waitMs(bootMotionReduced() ? 280 : 720);
     if (!skipped && !bootMotionReduced()) {
       logo.classList.add('is-out');
-      await explodeBootLogo(logo, canvas);
+      await explodeBootLogo(logo, canvas, () => skipped);
     } else {
       logo.classList.add('is-out');
     }
@@ -12092,7 +13719,9 @@ async function connectEvents(): Promise<UnlistenFn[]> {
   const exitUnlisten = await listen<TerminalExit>('terminal-exit', (event) => handleExit(event.payload));
   const fileUnlisten = await listen<WorkspaceFileChange>('workspace-file-change', (event) => handleWorkspaceFileChange(event.payload));
   const agentDeltaUnlisten = await listen<{ requestId: string; text: string }>('agent-delta', (event) => handleAgentDelta(event.payload));
+  const agentTokenUsageUnlisten = await listen<AgentTokenUsage>('agent-token-usage', (event) => handleAgentTokenUsage(event.payload));
   const agentToolUnlisten = await listen<{ requestId: string; name: string; input: string; output: string }>('agent-tool', (event) => handleAgentTool(event.payload));
+  const agentPermissionUnlisten = await listen<NativeAgentPermissionRequest>('agent-permission-request', (event) => handleAgentPermissionRequest(event.payload));
   const agentDoneUnlisten = await listen<{ requestId: string; error: string | null }>('agent-done', (event) => handleAgentDone(event.payload));
   const oauthUnlisten = await listen<ProviderStatus>('provider-oauth-complete', (event) => {
     applyProviderStatus(event.payload);
@@ -12101,7 +13730,7 @@ async function connectEvents(): Promise<UnlistenFn[]> {
     applyUsageSnapshot(event.payload);
   });
   const designUnlisten = await listen<DesignPick>('design-pick', (event) => handleDesignPick(event.payload));
-  return [outputUnlisten, statusUnlisten, exitUnlisten, fileUnlisten, agentDeltaUnlisten, agentToolUnlisten, agentDoneUnlisten, oauthUnlisten, usageUnlisten, designUnlisten];
+  return [outputUnlisten, statusUnlisten, exitUnlisten, fileUnlisten, agentDeltaUnlisten, agentTokenUsageUnlisten, agentToolUnlisten, agentPermissionUnlisten, agentDoneUnlisten, oauthUnlisten, usageUnlisten, designUnlisten];
 }
 
 void initialize();

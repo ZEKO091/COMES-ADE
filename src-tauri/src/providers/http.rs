@@ -92,6 +92,14 @@ pub fn json_tools() -> Value {
         {
             "type": "function",
             "function": {
+                "name": "workspace_info",
+                "description": "Inspecciona el sistema local, shell, runtimes instalados, workspace y estado Git real. No devuelve secretos.",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "list_files",
                 "description": "Lista archivos y carpetas del workspace.",
                 "parameters": {
@@ -134,6 +142,72 @@ pub fn json_tools() -> Value {
         {
             "type": "function",
             "function": {
+                "name": "create_file",
+                "description": "Crea un archivo real dentro del workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "relative": { "type": "string" } },
+                    "required": ["relative"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_directory",
+                "description": "Crea una carpeta real dentro del workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "relative": { "type": "string" } },
+                    "required": ["relative"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "rename_path",
+                "description": "Renombra un archivo o carpeta real dentro del workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "relative": { "type": "string" },
+                        "new_name": { "type": "string" }
+                    },
+                    "required": ["relative", "new_name"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "move_path",
+                "description": "Mueve un archivo o carpeta real a otra ruta dentro del workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "relative": { "type": "string" },
+                        "destination": { "type": "string" }
+                    },
+                    "required": ["relative", "destination"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_path",
+                "description": "Elimina un archivo o carpeta real dentro del workspace. Úsalo solo cuando el usuario lo pida claramente; nunca elimina la raíz.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "relative": { "type": "string" } },
+                    "required": ["relative"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "search_code",
                 "description": "Busca texto en el workspace.",
                 "parameters": {
@@ -156,13 +230,48 @@ pub fn json_tools() -> Value {
         {
             "type": "function",
             "function": {
-                "name": "run_command",
-                "description": "Ejecuta un comando de shell en el workspace.",
+                "name": "git_diff",
+                "description": "Lee el diff Git real del workspace, opcionalmente staged y limitado a rutas relativas.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "command": { "type": "string" }
+                        "staged": { "type": "boolean" },
+                        "paths": { "type": "array", "items": { "type": "string" } }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_branches",
+                "description": "Lista las ramas Git reales del workspace.",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_command",
+                "description": "Ejecuta un comando real de PowerShell o shell dentro del workspace. Puede inspeccionar y probar el proyecto.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": { "type": "string" },
+                        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300 }
                     },
+                    "required": ["command"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "start_process",
+                "description": "Arranca un proceso real en segundo plano con el workspace como directorio actual, útil para servidores de desarrollo.",
+                "parameters": {
+                    "type": "object",
+                    "properties": { "command": { "type": "string" } },
                     "required": ["command"]
                 }
             }
@@ -172,6 +281,11 @@ pub fn json_tools() -> Value {
 
 pub fn anthropic_tools() -> Value {
     json!([
+        {
+            "name": "workspace_info",
+            "description": "Inspecciona el sistema local, shell, runtimes instalados, workspace y estado Git real. No devuelve secretos.",
+            "input_schema": { "type": "object", "properties": {} }
+        },
         {
             "name": "list_files",
             "description": "Lista archivos y carpetas del workspace.",
@@ -204,6 +318,57 @@ pub fn anthropic_tools() -> Value {
             }
         },
         {
+            "name": "create_file",
+            "description": "Crea un archivo real dentro del workspace.",
+            "input_schema": {
+                "type": "object",
+                "properties": { "relative": { "type": "string" } },
+                "required": ["relative"]
+            }
+        },
+        {
+            "name": "create_directory",
+            "description": "Crea una carpeta real dentro del workspace.",
+            "input_schema": {
+                "type": "object",
+                "properties": { "relative": { "type": "string" } },
+                "required": ["relative"]
+            }
+        },
+        {
+            "name": "rename_path",
+            "description": "Renombra un archivo o carpeta real dentro del workspace.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "relative": { "type": "string" },
+                    "new_name": { "type": "string" }
+                },
+                "required": ["relative", "new_name"]
+            }
+        },
+        {
+            "name": "move_path",
+            "description": "Mueve un archivo o carpeta real a otra ruta dentro del workspace.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "relative": { "type": "string" },
+                    "destination": { "type": "string" }
+                },
+                "required": ["relative", "destination"]
+            }
+        },
+        {
+            "name": "delete_path",
+            "description": "Elimina un archivo o carpeta real dentro del workspace. Úsalo solo cuando el usuario lo pida claramente; nunca elimina la raíz.",
+            "input_schema": {
+                "type": "object",
+                "properties": { "relative": { "type": "string" } },
+                "required": ["relative"]
+            }
+        },
+        {
             "name": "search_code",
             "description": "Busca texto en el workspace.",
             "input_schema": {
@@ -218,8 +383,36 @@ pub fn anthropic_tools() -> Value {
             "input_schema": { "type": "object", "properties": {} }
         },
         {
+            "name": "git_diff",
+            "description": "Lee el diff Git real del workspace, opcionalmente staged y limitado a rutas relativas.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "staged": { "type": "boolean" },
+                    "paths": { "type": "array", "items": { "type": "string" } }
+                }
+            }
+        },
+        {
+            "name": "git_branches",
+            "description": "Lista las ramas Git reales del workspace.",
+            "input_schema": { "type": "object", "properties": {} }
+        },
+        {
             "name": "run_command",
-            "description": "Ejecuta un comando de shell en el workspace.",
+            "description": "Ejecuta un comando real de PowerShell o shell dentro del workspace. Puede inspeccionar y probar el proyecto.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string" },
+                    "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+                },
+                "required": ["command"]
+            }
+        },
+        {
+            "name": "start_process",
+            "description": "Arranca un proceso real en segundo plano con el workspace como directorio actual, útil para servidores de desarrollo.",
             "input_schema": {
                 "type": "object",
                 "properties": { "command": { "type": "string" } },
@@ -232,12 +425,21 @@ pub fn anthropic_tools() -> Value {
 pub fn gemini_tools() -> Value {
     json!([{
         "functionDeclarations": [
+            { "name": "workspace_info", "description": "Inspecciona el sistema local, shell, runtimes instalados, workspace y estado Git real. No devuelve secretos.", "parameters": { "type": "OBJECT", "properties": {} } },
             { "name": "list_files", "description": "Lista archivos del workspace.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" } } } },
             { "name": "read_file", "description": "Lee un archivo.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" } }, "required": ["relative"] } },
             { "name": "write_file", "description": "Escribe un archivo.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" }, "content": { "type": "STRING" } }, "required": ["relative", "content"] } },
+            { "name": "create_file", "description": "Crea un archivo real dentro del workspace.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" } }, "required": ["relative"] } },
+            { "name": "create_directory", "description": "Crea una carpeta real dentro del workspace.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" } }, "required": ["relative"] } },
+            { "name": "rename_path", "description": "Renombra una ruta real dentro del workspace.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" }, "new_name": { "type": "STRING" } }, "required": ["relative", "new_name"] } },
+            { "name": "move_path", "description": "Mueve una ruta real dentro del workspace.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" }, "destination": { "type": "STRING" } }, "required": ["relative", "destination"] } },
+            { "name": "delete_path", "description": "Elimina una ruta real dentro del workspace. Úsalo solo si el usuario lo pidió claramente; nunca elimina la raíz.", "parameters": { "type": "OBJECT", "properties": { "relative": { "type": "STRING" } }, "required": ["relative"] } },
             { "name": "search_code", "description": "Busca texto.", "parameters": { "type": "OBJECT", "properties": { "query": { "type": "STRING" } }, "required": ["query"] } },
             { "name": "git_status", "description": "Estado Git.", "parameters": { "type": "OBJECT", "properties": {} } },
-            { "name": "run_command", "description": "Comando de shell.", "parameters": { "type": "OBJECT", "properties": { "command": { "type": "STRING" } }, "required": ["command"] } }
+            { "name": "git_diff", "description": "Lee el diff Git real.", "parameters": { "type": "OBJECT", "properties": { "staged": { "type": "BOOLEAN" }, "paths": { "type": "ARRAY", "items": { "type": "STRING" } } } } },
+            { "name": "git_branches", "description": "Lista ramas Git reales.", "parameters": { "type": "OBJECT", "properties": {} } },
+            { "name": "run_command", "description": "Ejecuta un comando real de PowerShell o shell dentro del workspace.", "parameters": { "type": "OBJECT", "properties": { "command": { "type": "STRING" }, "timeout_seconds": { "type": "INTEGER", "minimum": 1, "maximum": 300 } }, "required": ["command"] } },
+            { "name": "start_process", "description": "Arranca un proceso real en segundo plano, útil para servidores de desarrollo.", "parameters": { "type": "OBJECT", "properties": { "command": { "type": "STRING" } }, "required": ["command"] } }
         ]
     }])
 }

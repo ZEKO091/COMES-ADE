@@ -8,6 +8,15 @@ use std::{
 
 use crate::providers::types::StoredProviderCredentials;
 
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 pub fn bind_loopback(port: u16) -> Result<Vec<TcpListener>, String> {
     let mut listeners = Vec::new();
     for host in ["127.0.0.1", "[::1]"] {
@@ -53,14 +62,14 @@ pub fn spawn_oauth_listener<F>(
                                 if let Some(exchange) = exchange.take() {
                                     let result = exchange(code);
                                     let (ok, body) = match &result {
-                                        Ok(_) => (true, success_html.to_string()),
-                                        Err(error) => (
-                                            false,
-                                            format!(
-                                                "<!doctype html><html><body style='font-family:sans-serif;background:#111;color:#eee;padding:40px'><h1>No se pudo completar el acceso</h1><p>{}</p><p>Vuelve a ComesADE e intenta de nuevo.</p></body></html>",
-                                                error
-                                            ),
-                                        ),
+                            Ok(_) => (true, success_html.to_string()),
+                            Err(error) => (
+                                false,
+                                format!(
+                                    "<!doctype html><html><body style='font-family:sans-serif;background:#111;color:#eee;padding:40px'><h1>No se pudo completar el acceso</h1><p>{}</p><p>Vuelve a ComesADE e intenta de nuevo.</p></body></html>",
+                                    html_escape(error)
+                                ),
+                            ),
                                     };
                                     let _ = write!(
                                         stream,
@@ -81,7 +90,7 @@ pub fn spawn_oauth_listener<F>(
                             {
                                 let body = format!(
                                     "<!doctype html><html><body style='font-family:sans-serif;background:#111;color:#eee;padding:40px'><h1>Login cancelado</h1><p>{}</p></body></html>",
-                                    error
+                                    html_escape(&error)
                                 );
                                 let _ = write!(
                                     stream,
