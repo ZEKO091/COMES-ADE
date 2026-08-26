@@ -11825,6 +11825,151 @@ button.model-effort-chip.is-selected {
   opacity: 1;
 }
 
+/* Localization guardrails for the full landing tab. */
+.main-menu-backdrop .main-menu-panel,
+.main-menu-backdrop .main-menu-layout,
+.main-menu-backdrop .main-menu-stage,
+.main-menu-backdrop .main-menu-tools,
+.main-menu-backdrop .main-menu-deck,
+.main-menu-backdrop .main-menu-hero,
+.main-menu-backdrop .main-menu-topline,
+.main-menu-backdrop .main-menu-brand,
+.main-menu-backdrop .main-menu-topline-actions {
+  min-width: 0;
+}
+
+.main-menu-backdrop .main-menu-topline {
+  flex-wrap: wrap;
+}
+
+.main-menu-backdrop .main-menu-brand > span,
+.main-menu-backdrop .main-menu-hero-copy,
+.main-menu-backdrop .main-menu-workspace-copy,
+.main-menu-backdrop .main-menu-action > span:nth-child(2),
+.main-menu-backdrop .workspace-list-item > span:nth-child(2) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.main-menu-backdrop .main-menu-brand small,
+.main-menu-backdrop .main-menu-hero .eyebrow,
+.main-menu-backdrop #main-menu-title,
+.main-menu-backdrop .main-menu-copy,
+.main-menu-backdrop .main-menu-workspace-copy strong,
+.main-menu-backdrop .main-menu-workspace-copy small,
+.main-menu-backdrop .main-menu-action strong,
+.main-menu-backdrop .main-menu-action small,
+.main-menu-backdrop .workspace-list-item strong,
+.main-menu-backdrop .workspace-list-item small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.main-menu-backdrop .main-menu-section-heading {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.main-menu-backdrop .main-menu-section-heading > span,
+.main-menu-backdrop .main-menu-section-heading > small {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.main-menu-backdrop .main-menu-section-heading > small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.main-menu-backdrop .main-menu-current {
+  grid-template-columns: 48px minmax(0, 1fr) minmax(0, max-content);
+}
+
+.main-menu-backdrop .main-menu-workspace-state {
+  min-width: 0;
+  max-width: 14rem;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: center;
+  justify-content: center;
+  line-height: 1.25;
+}
+
+.main-menu-backdrop .main-menu-picker {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.main-menu-backdrop .main-menu-picker > .secondary-button {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: 36px;
+  padding-block: 8px;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+}
+
+.main-menu-backdrop .main-menu-picker > .secondary-button > span,
+.main-menu-backdrop .main-menu-picker > small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.main-menu-backdrop .main-menu-picker > small {
+  flex: 1 1 180px;
+  max-width: 100%;
+}
+
+.main-menu-backdrop .workspace-list-row,
+.main-menu-backdrop .workspace-list-item,
+.main-menu-backdrop .main-menu-action {
+  min-width: 0;
+}
+
+.main-menu-backdrop .workspace-list-item,
+.main-menu-backdrop .main-menu-action {
+  white-space: normal;
+}
+
+.main-menu-backdrop .workspace-list-active {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: right;
+}
+
+.main-menu-backdrop .main-menu-github-list,
+.main-menu-backdrop .github-repository-row,
+.main-menu-backdrop .github-repository-copy,
+.main-menu-backdrop .github-repository-meta {
+  min-width: 0;
+}
+
+.main-menu-backdrop .github-repository-copy strong,
+.main-menu-backdrop .github-repository-copy small,
+.main-menu-backdrop .github-repository-meta i,
+.main-menu-backdrop .github-repository-meta small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 720px) {
+  .main-menu-backdrop .main-menu-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .main-menu-backdrop .main-menu-current {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+}
+
 /* Keep the landing menu sections from collapsing into one another vertically. */
 .main-menu-backdrop .main-menu-layout {
   flex: 0 0 auto;
