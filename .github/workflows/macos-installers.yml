@@ -1,0 +1,103 @@
+name: Build macOS DMG installers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Public GitHub App client ID used by the desktop Device Flow.
+  VITE_GITHUB_CLIENT_ID: Ov23likU101MbFvs0gWw
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    name: ComesADE macOS ${{ matrix.arch }} installer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Supported GitHub-hosted Intel runner.
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x64
+          # Supported GitHub-hosted Apple Silicon runner.
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      # Ad-hoc signing avoids the damaged-app behavior on Apple Silicon
+      # without putting an Apple Developer certificate in the repository.
+      # This is not notarization; public distribution still needs Apple signing.
+      APPLE_SIGNING_IDENTITY: '-'
+      TAURI_TARGET: ${{ matrix.target }}
+      MACOS_ARCH: ${{ matrix.arch }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build real macOS DMG
+        run: >-
+          npm run tauri build --
+          --config src-tauri/tauri.local.conf.json
+          --bundles dmg
+          --target "$TAURI_TARGET"
+
+      - name: Validate and stage installer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          staging="$RUNNER_TEMP/comesade-macos-$MACOS_ARCH"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+
+          dmg_path="$(find "$GITHUB_WORKSPACE/src-tauri/target" -type f -name '*.dmg' -print -quit)"
+          if [[ -z "$dmg_path" ]]; then
+            echo "No se encontró ningún DMG de ComesADE." >&2
+            find "$GITHUB_WORKSPACE/src-tauri/target" -type f -print | sort | tail -n 80 || true
+            exit 1
+          fi
+
+          installer="ComesADE-Setup-${MACOS_ARCH}.dmg"
+          cp "$dmg_path" "$staging/$installer"
+
+          # Verify the disk image before uploading it to Actions.
+          hdiutil imageinfo "$staging/$installer" >/dev/null
+          (
+            cd "$staging"
+            shasum -a 256 "$installer" > "$installer.sha256"
+          )
+
+          echo "Installer: $staging/$installer"
+          ls -lh "$staging"
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComesADE-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/comesade-macos-${{ matrix.arch }}/*
+          if-no-files-found: error
+          retention-days: 30
