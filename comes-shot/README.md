@@ -71,24 +71,28 @@ ajustes…*); la app recarga el archivo sola al guardarlo. Ejemplo: `area = "Pri
 
 ## Actualizaciones automáticas
 
-Publicar una versión nueva:
+Las actualizaciones las sirve nuestro propio Worker de Cloudflare, sin GitHub:
+`https://comes-shot-updates.kingfrianfrian16.workers.dev` (carpeta `updates/`, solo
+archivos estáticos: `manifest.json` con versión, ruta y SHA-256, y los `.exe`).
 
-1. Cambia el código en `comes-shot/` y sube la versión en `Cargo.toml` (`version = "0.3.0"`).
-2. Haz push a `main`. El workflow *Comes Shot release* compila, pasa los tests y publica
-   la release `comes-shot-v0.3.0` con `ComesShot.exe` y su `ComesShot.exe.sha256`.
-   Si la versión no cambió, solo compila y prueba.
+Publicar desde este PC (`powershell -ExecutionPolicy Bypass -File publicar.ps1 …`):
 
-   Sin GitHub Actions (por ejemplo, con la facturación de la cuenta bloqueada), publica
-   desde el PC con `powershell -ExecutionPolicy Bypass -File publicar.ps1`, que hace lo
-   mismo: tests, compilación y release.
+| Quiero… | Comando |
+|---|---|
+| Publicar una versión | sube `version` en `Cargo.toml` y ejecuta `publicar.ps1` |
+| Publicarla poco a poco | `publicar.ps1 -Rollout 20` (le llega al 20 % de las copias) |
+| Ampliarla a todos | `publicar.ps1 -Rollout 100` |
+| Pausar una versión con un fallo | `publicar.ps1 -Pausar` (nadie más la descarga) |
+| Reanudarla | `publicar.ps1 -Reanudar` |
 
-Las copias instaladas consultan esas releases 15 s después de abrirse y luego cada 6 horas.
-Si hay una versión nueva, la descargan, comprueban su SHA-256, sustituyen el `.exe` y se
-reinician solas. Si estás capturando o tienes el editor abierto, esperan a que termines.
-Se puede desactivar en *Opciones → Actualizar automáticamente*.
+El script pasa los tests, compila, calcula el SHA-256, escribe el manifiesto, despliega
+con `wrangler` y comprueba que el servidor ya muestra la versión nueva. Mantiene en línea
+las tres últimas versiones. Descarga directa de la última: `/ComesShot.exe`.
 
-Las releases de Comes Shot usan tags `comes-shot-v*` y nunca se marcan como *Latest*,
-para no interferir con el actualizador de ComesADE ni con sus compilaciones firmadas (`v*`).
+Las copias instaladas consultan el manifiesto 15 s después de abrirse y luego cada 6 horas.
+Si hay una versión nueva para ellas, la descargan, comprueban su SHA-256, sustituyen el
+`.exe` y se reinician solas. Si estás capturando o tienes el editor abierto, esperan a que
+termines. Se puede desactivar en *Opciones → Actualizar automáticamente*.
 
 ## Compilar
 

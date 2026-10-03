@@ -1,0 +1,11 @@
+{
+  // Comes Shot update server: serves manifest.json and the exe files in
+  // ./public. Deployed by ../publicar.ps1. No server code, static assets only.
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "comes-shot-updates",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public"
+  }
+}

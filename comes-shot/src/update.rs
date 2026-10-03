@@ -1,48 +1,43 @@
-//! Automatic updates from GitHub releases of ZEKO091/COMES-ADE.
+//! Automatic updates served by our own Cloudflare Worker (no GitHub).
 //!
-//! Comes Shot releases are tagged `comes-shot-vX.Y.Z` and are never marked
-//! "Latest" (ComesADE's own updater reads releases/latest). The app checks
-//! them, downloads a newer `ComesShot.exe`, verifies its SHA-256 against the
-//! digest GitHub reports, swaps it in place of the running exe and restarts.
+//! `https://comes-shot-updates.kingfrianfrian16.workers.dev/manifest.json`
+//! says which version is current, where its exe is and its SHA-256. The app
+//! downloads a newer exe, verifies the hash, swaps it in place of the running
+//! exe and restarts. The manifest can pause a release or roll it out to a
+//! percentage of installs.
 
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const API_HOST: &str = "api.github.com";
-const API_PATH: &str = "/repos/ZEKO091/COMES-ADE/releases?per_page=50";
-pub const TAG_PREFIX: &str = "comes-shot-v";
-const ASSET: &str = "ComesShot.exe";
+pub const HOST: &str = "comes-shot-updates.kingfrianfrian16.workers.dev";
+const MANIFEST: &str = "/manifest.json";
 const MAX_EXE: usize = 64 * 1024 * 1024;
 
-#[derive(Deserialize)]
-struct Release {
-    tag_name: String,
+#[derive(Deserialize, Debug)]
+struct Manifest {
+    version: String,
+    /// Path of the exe on the update host, e.g. "/releases/ComesShot-0.2.1.exe".
+    path: String,
+    sha256: String,
+    /// Stops every install from taking this version (e.g. a bad release).
     #[serde(default)]
-    draft: bool,
-    #[serde(default)]
-    prerelease: bool,
-    #[serde(default)]
-    assets: Vec<Asset>,
+    paused: bool,
+    /// Percentage of installs (0-100) that get this version.
+    #[serde(default = "full")]
+    rollout: u32,
 }
 
-#[derive(Deserialize)]
-struct Asset {
-    name: String,
-    browser_download_url: String,
-    /// "sha256:<hex>", computed by GitHub when the asset was uploaded.
-    #[serde(default)]
-    digest: Option<String>,
+fn full() -> u32 {
+    100
 }
 
 #[derive(Clone, Debug)]
 pub struct Available {
     pub version: String,
-    url: String,
-    sha256: Option<String>,
-    /// URL of a `ComesShot.exe.sha256` asset, used when GitHub gives no digest.
-    sha_url: Option<String>,
+    path: String,
+    sha256: String,
 }
 
 pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
@@ -54,27 +49,35 @@ pub fn current() -> (u32, u32, u32) {
     parse_version(env!("CARGO_PKG_VERSION")).unwrap_or((0, 0, 0))
 }
 
-/// Newest published Comes Shot release that is newer than this build.
+/// The published version, if it is newer than this build and meant for this install.
 pub fn check() -> Option<Available> {
-    let body = crate::net::get_bytes(API_HOST, API_PATH, 15_000, 4 * 1024 * 1024)?;
-    let releases: Vec<Release> = serde_json::from_slice(&body).ok()?;
-    newest(&releases, current())
+    let body = crate::net::get_bytes(HOST, MANIFEST, 15_000, 64 * 1024)?;
+    let m: Manifest = serde_json::from_slice(&body).ok()?;
+    evaluate(m, current(), install_bucket())
 }
 
-fn newest(releases: &[Release], current: (u32, u32, u32)) -> Option<Available> {
-    releases
-        .iter()
-        .filter(|r| !r.draft && !r.prerelease)
-        .filter_map(|r| {
-            let v = parse_version(r.tag_name.strip_prefix(TAG_PREFIX)?)?;
-            let exe = r.assets.iter().find(|a| a.name == ASSET)?;
-            let sha256 = exe.digest.as_deref().and_then(|d| d.strip_prefix("sha256:")).map(|s| s.to_ascii_lowercase());
-            let sha_url = r.assets.iter().find(|a| a.name == format!("{ASSET}.sha256")).map(|a| a.browser_download_url.clone());
-            Some((v, Available { version: format!("{}.{}.{}", v.0, v.1, v.2), url: exe.browser_download_url.clone(), sha256, sha_url }))
-        })
-        .filter(|(v, _)| *v > current)
-        .max_by_key(|(v, _)| *v)
-        .map(|(_, a)| a)
+fn evaluate(m: Manifest, current: (u32, u32, u32), bucket: u32) -> Option<Available> {
+    let v = parse_version(&m.version)?;
+    if m.paused || v <= current || bucket >= m.rollout.min(100) {
+        return None;
+    }
+    if m.sha256.len() != 64 || !m.path.starts_with('/') {
+        return None;
+    }
+    Some(Available { version: format!("{}.{}.{}", v.0, v.1, v.2), path: m.path, sha256: m.sha256.to_ascii_lowercase() })
+}
+
+/// A stable number 0-99 for this install, used for gradual rollouts.
+fn install_bucket() -> u32 {
+    let path = crate::config::app_dir().join("install-id");
+    let id = std::fs::read_to_string(&path).ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or_else(|| {
+        let id = Sha256::digest(format!("{:?}{}", std::time::SystemTime::now(), std::process::id()).as_bytes());
+        let id = u64::from_le_bytes(id[..8].try_into().unwrap());
+        let _ = std::fs::create_dir_all(crate::config::app_dir());
+        let _ = std::fs::write(&path, id.to_string());
+        id
+    });
+    (id % 100) as u32
 }
 
 fn update_dir() -> PathBuf {
@@ -83,18 +86,8 @@ fn update_dir() -> PathBuf {
 
 /// Downloads and verifies the new exe. Returns its path, ready to install.
 pub fn download(a: &Available) -> Result<PathBuf, String> {
-    let expected = match &a.sha256 {
-        Some(h) => h.clone(),
-        None => {
-            // Fall back to the checksum file published next to the exe.
-            let url = a.sha_url.as_ref().ok_or("la versión no publica su huella SHA-256")?;
-            let text = crate::net::get_url(url, 15_000, 4096).ok_or("no se pudo descargar la huella")?;
-            String::from_utf8_lossy(&text).split_whitespace().next().unwrap_or("").to_ascii_lowercase()
-        }
-    };
-    let bytes = crate::net::get_url(&a.url, 60_000, MAX_EXE).ok_or("no se pudo descargar la actualización")?;
-    let got = hex(&Sha256::digest(&bytes));
-    if got != expected {
+    let bytes = crate::net::get_bytes(HOST, &a.path, 60_000, MAX_EXE).ok_or("no se pudo descargar la actualización")?;
+    if hex(&Sha256::digest(&bytes)) != a.sha256 {
         return Err("la descarga no coincide con su huella SHA-256".into());
     }
     if !bytes.starts_with(b"MZ") {
@@ -153,29 +146,22 @@ pub fn relaunch(exe: &Path, minimized: bool, version: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn rel(tag: &str, digest: Option<&str>) -> Release {
-        Release {
-            tag_name: tag.into(),
-            draft: false,
-            prerelease: false,
-            assets: vec![Asset { name: ASSET.into(), browser_download_url: format!("https://x/{tag}"), digest: digest.map(|d| d.into()) }],
-        }
+    fn m(version: &str, paused: bool, rollout: u32) -> Manifest {
+        Manifest { version: version.into(), path: "/releases/x.exe".into(), sha256: "a".repeat(64), paused, rollout }
     }
 
     #[test]
-    fn picks_newest_comes_shot_release_only() {
-        let list = vec![
-            rel("v1.0.3", Some("sha256:aa")), // ComesADE: ignored
-            rel("comes-shot-v0.2.0", Some("sha256:bb")),
-            rel("comes-shot-v0.10.1", Some("sha256:CC")),
-            rel("comes-shot-v0.3.0", None),
-        ];
-        let a = newest(&list, (0, 2, 0)).unwrap();
-        assert_eq!(a.version, "0.10.1");
-        assert_eq!(a.sha256.as_deref(), Some("cc"));
-        assert!(newest(&list, (0, 10, 1)).is_none());
+    fn manifest_rules() {
+        assert_eq!(evaluate(m("0.3.0", false, 100), (0, 2, 1), 50).unwrap().version, "0.3.0");
+        assert!(evaluate(m("0.2.1", false, 100), (0, 2, 1), 50).is_none(), "same version");
+        assert!(evaluate(m("0.3.0", true, 100), (0, 2, 1), 50).is_none(), "paused");
+        assert!(evaluate(m("0.3.0", false, 20), (0, 2, 1), 50).is_none(), "outside rollout");
+        assert!(evaluate(m("0.3.0", false, 20), (0, 2, 1), 10).is_some(), "inside rollout");
+        let json = br#"{"version":"0.3.0","path":"/releases/ComesShot-0.3.0.exe","sha256":"AB","extra":1}"#;
+        let parsed: Manifest = serde_json::from_slice(json).unwrap();
+        assert_eq!(parsed.rollout, 100);
+        assert!(evaluate(parsed, (0, 2, 1), 0).is_none(), "bad hash length");
         assert_eq!(parse_version("1.2"), Some((1, 2, 0)));
-        assert!(parse_version("x").is_none());
     }
 
     #[test]

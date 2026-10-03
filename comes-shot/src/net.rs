@@ -27,16 +27,7 @@ pub fn get(host: &str, path: &str, timeout_ms: i32) -> Option<String> {
     String::from_utf8(get_bytes(host, path, timeout_ms, 64 * 1024)?).ok()
 }
 
-/// GET of a full https:// URL (redirects are followed), at most `max` bytes.
-pub fn get_url(url: &str, timeout_ms: i32, max: usize) -> Option<Vec<u8>> {
-    let rest = url.strip_prefix("https://")?;
-    let (host, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    get_bytes(host, path, timeout_ms, max)
-}
-
+/// GET https://{host}{path}, at most `max` bytes.
 pub fn get_bytes(host: &str, path: &str, timeout_ms: i32, max: usize) -> Option<Vec<u8>> {
     unsafe {
         let agent = wide(concat!("ComesShot/", env!("CARGO_PKG_VERSION")));

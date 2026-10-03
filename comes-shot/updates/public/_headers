@@ -1,0 +1,14 @@
+# The manifest must never be cached, so a new version (or a pause) is seen at once.
+/manifest.json
+  Cache-Control: no-store
+  Content-Type: application/json; charset=utf-8
+
+# Release files never change once published.
+/releases/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: application/vnd.microsoft.portable-executable
+
+/ComesShot.exe
+  Cache-Control: no-cache
+  Content-Type: application/vnd.microsoft.portable-executable
+  Content-Disposition: attachment; filename="ComesShot.exe"

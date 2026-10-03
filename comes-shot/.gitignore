@@ -1,1 +1,4 @@
 target/
+updates/public/releases/
+updates/public/ComesShot.exe
+updates/.wrangler/

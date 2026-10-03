@@ -1,0 +1,8 @@
+{
+    "version":  "0.2.1",
+    "path":  "/releases/ComesShot-0.2.1.exe",
+    "sha256":  "7c19c31babce32487b57a5a7da7fd151ebd6440821e86cc5b2a1497fc016d7cb",
+    "paused":  false,
+    "rollout":  100,
+    "published":  "2026-10-03T20:34:46Z"
+}
