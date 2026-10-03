@@ -28,6 +28,8 @@ pub struct Config {
     pub fullscreen_all_displays: bool,
     pub magnifier: bool,
     pub crosshair: bool,
+    /// Download and install new Comes Shot releases automatically.
+    pub auto_update: bool,
     /// Interface language: "auto" (follows Windows), "es", "en", "pt", "fr" or "de".
     pub language: String,
     pub hotkeys: Hotkeys,
@@ -69,6 +71,7 @@ impl Default for Config {
             fullscreen_all_displays: false,
             magnifier: true,
             crosshair: true,
+            auto_update: true,
             language: "auto".into(),
             hotkeys: Hotkeys::default(),
         }

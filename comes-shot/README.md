@@ -22,8 +22,11 @@ un solo `.exe` de ~650 KB.
 
 ## Idiomas
 
-Español, English, Português, Français y Deutsch. Por defecto sigue el idioma de Windows
-(si no es uno de esos cinco, usa inglés); se cambia en *Opciones → Idioma*, o con
+Español, English, Português, Français y Deutsch, los mismos que ComesADE y con la misma
+regla automática (dispositivo + IP): si Windows y el país de tu IP coinciden, ese idioma;
+si Windows está en inglés pero tu IP es de un país de otro idioma, gana el de la IP; si
+no, el de Windows. El país se consulta a la API de ComesADE (o al trace de Cloudflare) y
+se guarda 6 horas. Se cambia en *Opciones → Idioma*, o con
 `language = "en"` en `config.toml`. Los textos están en `src/i18n.rs` y un test falla si
 algún texto de la interfaz no tiene traducción.
 
@@ -65,6 +68,23 @@ En el overlay: `Espacio` alterna área/ventana, `F` captura el monitor, `C` copi
 
 Se cambian en `%APPDATA%\ComesShot\config.toml` (*Opciones → Preferencias → Editar atajos y
 ajustes…*); la app recarga el archivo sola al guardarlo. Ejemplo: `area = "PrintScreen"`.
+
+## Actualizaciones automáticas
+
+Publicar una versión nueva:
+
+1. Cambia el código en `comes-shot/` y sube la versión en `Cargo.toml` (`version = "0.3.0"`).
+2. Haz push a `main`. El workflow *Comes Shot release* compila, pasa los tests y publica
+   la release `comes-shot-v0.3.0` con `ComesShot.exe` y su `ComesShot.exe.sha256`.
+   Si la versión no cambió, solo compila y prueba.
+
+Las copias instaladas consultan esas releases 15 s después de abrirse y luego cada 6 horas.
+Si hay una versión nueva, la descargan, comprueban su SHA-256, sustituyen el `.exe` y se
+reinician solas. Si estás capturando o tienes el editor abierto, esperan a que termines.
+Se puede desactivar en *Opciones → Actualizar automáticamente*.
+
+Las releases de Comes Shot usan tags `comes-shot-v*` y nunca se marcan como *Latest*,
+para no interferir con el actualizador de ComesADE ni con sus compilaciones firmadas (`v*`).
 
 ## Compilar
 

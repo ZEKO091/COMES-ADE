@@ -39,6 +39,11 @@ use crate::{clipboard, editor, gfx, hud, i18n, ocr, pin, quick, shell, sound};
 pub const WM_APP_EVENT: u32 = WM_APP + 1;
 const WM_MOUSELEAVE: u32 = 0x02A3;
 const TIMER_CONFIG: usize = 1;
+/// Checks GitHub for a new Comes Shot release (first soon after start, then every 6 h).
+const TIMER_UPDATE_FIRST: usize = 2;
+const TIMER_UPDATE: usize = 3;
+/// Retries installing a downloaded update once the app is idle.
+const TIMER_APPLY: usize = 4;
 pub const MAIN_CLASS: &str = "ComesShot.Main";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +98,10 @@ pub enum AppEvent {
     Last(Image, Option<PathBuf>),
     /// A setting changed in the options panel (`options::cmd`).
     Command(usize),
+    /// Country of the public IP (for automatic language), or None if unknown.
+    IpCountry(Option<String>),
+    /// A verified update was downloaded: (exe path, version). None = nothing new.
+    UpdateReady(Option<(PathBuf, String)>),
 }
 
 static QUEUE: Mutex<VecDeque<AppEvent>> = Mutex::new(VecDeque::new());
@@ -164,11 +173,17 @@ struct App {
     last_area: Option<Rect>,
     last: Option<(Image, Option<PathBuf>)>,
     failed_hotkeys: Vec<String>,
+    update_checking: bool,
+    pending_update: Option<(PathBuf, String)>,
     config_mtime: Option<std::time::SystemTime>,
 }
 
-pub fn run(startup: Option<Action>, background: bool) {
+pub fn run(startup: Option<Action>, background: bool, updated: Option<String>) {
     let cfg = config::load();
+    // Last known IP country, so the first frame is already in the right language.
+    if let Some((code, _)) = cached_ip_country() {
+        i18n::set_ip_country(Some(code));
+    }
     i18n::apply(&cfg.language);
     allow_dark_menus();
     // Centre the main window on the monitor under the cursor, sized for its DPI.
@@ -189,6 +204,8 @@ pub fn run(startup: Option<Action>, background: bool) {
         last_area: None,
         last: None,
         failed_hotkeys: Vec::new(),
+        update_checking: false,
+        pending_update: None,
         config_mtime: None,
     };
     let hwnd = match window::create(
@@ -216,6 +233,9 @@ pub fn run(startup: Option<Action>, background: bool) {
     if let Some(a) = startup {
         post(AppEvent::Run(a));
     }
+    if let Some(v) = updated {
+        post(AppEvent::Hud(tf("Comes Shot se actualizó a la versión {}", &[&v])));
+    }
 
     unsafe {
         let mut msg = MSG::default();
@@ -233,6 +253,11 @@ impl App {
         sound::preload();
         // Desktop Duplication ready before the first capture (~5 ms instead of ~40 ms).
         crate::dxgi::warm_up();
+        detect_ip_country();
+        unsafe {
+            SetTimer(Some(hwnd), TIMER_UPDATE_FIRST, 15_000, None);
+            SetTimer(Some(hwnd), TIMER_UPDATE, 6 * 3600 * 1000, None);
+        }
         let _ = config::reload_if_changed(&mut self.config_mtime);
         unsafe {
             SetTimer(Some(hwnd), TIMER_CONFIG, 2000, None);
@@ -290,8 +315,8 @@ impl App {
         }
     }
 
-    /// Asks open editors to close (they offer to save). False if one stayed open.
-    fn close_editors(&self) -> bool {
+    /// Open annotation editors.
+    fn editors(&self) -> Vec<HWND> {
         unsafe extern "system" fn collect(hwnd: HWND, lp: LPARAM) -> BOOL {
             let list = &mut *(lp.0 as *mut Vec<HWND>);
             let mut class = [0u16; 64];
@@ -304,10 +329,66 @@ impl App {
         let mut editors: Vec<HWND> = Vec::new();
         unsafe {
             let _ = EnumThreadWindows(GetCurrentThreadId(), Some(collect), LPARAM(&mut editors as *mut _ as isize));
+        }
+        editors
+    }
+
+    /// Asks open editors to close (they offer to save). False if one stayed open.
+    fn close_editors(&self) -> bool {
+        let editors = self.editors();
+        unsafe {
             for &e in &editors {
                 SendMessageW(e, WM_CLOSE, None, None);
             }
             editors.iter().all(|&e| !IsWindow(Some(e)).as_bool())
+        }
+    }
+
+    /// Looks for a newer Comes Shot release and downloads it in the background.
+    fn check_for_update(&mut self) {
+        if !config::get().auto_update || self.update_checking || self.pending_update.is_some() {
+            return;
+        }
+        self.update_checking = true;
+        std::thread::spawn(|| {
+            let found = crate::update::check().and_then(|a| match crate::update::download(&a) {
+                Ok(path) => Some((path, a.version)),
+                Err(e) => {
+                    capture::log(&format!("actualización {}: {e}", a.version));
+                    None
+                }
+            });
+            post(AppEvent::UpdateReady(found));
+        });
+    }
+
+    /// Installs a downloaded update and restarts, but never in the middle of
+    /// something: while a capture or an editor is open it waits and retries.
+    fn try_apply_update(&mut self) {
+        let Some((path, version)) = self.pending_update.clone() else { return };
+        if self.overlay_open || !self.editors().is_empty() {
+            unsafe {
+                SetTimer(Some(self.hwnd), TIMER_APPLY, 60_000, None);
+            }
+            return;
+        }
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), TIMER_APPLY);
+        }
+        self.pending_update = None;
+        match crate::update::install(&path) {
+            Ok(exe) => {
+                let minimized = unsafe { IsIconic(self.hwnd).as_bool() };
+                if crate::update::relaunch(&exe, minimized, &version) {
+                    // The new version waits for this one to exit.
+                    unsafe {
+                        let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.hwnd);
+                    }
+                } else {
+                    hud::show(&tf("Comes Shot {} se usará la próxima vez que lo abras", &[&version]));
+                }
+            }
+            Err(e) => hud::show(&tf("No se pudo actualizar: {}", &[&e])),
         }
     }
 
@@ -528,6 +609,18 @@ impl App {
             },
             AppEvent::Run(a) => self.act(a),
             AppEvent::Command(id) => self.on_command(id),
+            AppEvent::UpdateReady(found) => {
+                self.update_checking = false;
+                if let Some(found) = found {
+                    self.pending_update = Some(found);
+                    self.try_apply_update();
+                }
+            }
+            AppEvent::IpCountry(code) => {
+                i18n::set_ip_country(code);
+                i18n::apply(&config::get().language);
+                self.repaint();
+            }
             AppEvent::Last(img, path) => {
                 self.home.set_last(&img);
                 self.last = Some((img, path));
@@ -575,6 +668,10 @@ impl App {
             27 => config::update(|c| c.format = "jpg".into()),
             28 => config::update(|c| c.fullscreen_all_displays = !c.fullscreen_all_displays),
             29 => config::update(|c| c.crosshair = !c.crosshair),
+            31 => {
+                config::update(|c| c.auto_update = !c.auto_update);
+                self.check_for_update();
+            }
             30 => shell::open_in_notepad(&config::path()),
             50..=55 => {
                 let code = if id == 50 { "auto" } else { i18n::LANGS[id - 51].0 };
@@ -694,6 +791,19 @@ impl Handler for App {
                     Some(LRESULT(0))
                 }
             }
+            WM_TIMER if wp.0 == TIMER_UPDATE_FIRST || wp.0 == TIMER_UPDATE => {
+                if wp.0 == TIMER_UPDATE_FIRST {
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), TIMER_UPDATE_FIRST);
+                    }
+                }
+                self.check_for_update();
+                Some(LRESULT(0))
+            }
+            WM_TIMER if wp.0 == TIMER_APPLY => {
+                self.try_apply_update();
+                Some(LRESULT(0))
+            }
             WM_TIMER if wp.0 == TIMER_CONFIG => {
                 // Keeps "Hace 3 min" under the viewfinder current.
                 if self.home.has_last() {
@@ -736,6 +846,38 @@ impl Handler for App {
             _ => None,
         }
     }
+}
+
+const IP_CACHE_HOURS: u64 = 6;
+
+fn ip_cache_path() -> PathBuf {
+    config::app_dir().join("ip-country.txt")
+}
+
+/// (country code, saved at ms) if saved within the last 6 hours, like ComesADE.
+fn cached_ip_country() -> Option<(String, u64)> {
+    let text = std::fs::read_to_string(ip_cache_path()).ok()?;
+    let mut lines = text.lines();
+    let code = lines.next()?.trim().to_string();
+    let at: u64 = lines.next()?.trim().parse().ok()?;
+    let fresh = util::now_ms().saturating_sub(at) < IP_CACHE_HOURS * 3600 * 1000;
+    (fresh && code.len() == 2).then_some((code, at))
+}
+
+/// Looks up the public IP's country in the background (automatic language
+/// uses device + IP, the same as ComesADE). Skipped while the cache is fresh.
+fn detect_ip_country() {
+    if cached_ip_country().is_some() {
+        return;
+    }
+    std::thread::spawn(|| {
+        let found = crate::net::ip_country().map(|(code, _name)| code);
+        if let Some(code) = &found {
+            let _ = std::fs::create_dir_all(config::app_dir());
+            let _ = std::fs::write(ip_cache_path(), format!("{code}\n{}\n", util::now_ms()));
+        }
+        post(AppEvent::IpCountry(found));
+    });
 }
 
 /// Lets Win32 popup menus follow the system dark theme (uxtheme ordinal 135).

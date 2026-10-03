@@ -16,6 +16,7 @@ mod i18n;
 mod icon;
 mod icons;
 mod image;
+mod net;
 mod ocr;
 mod options;
 mod overlay;
@@ -27,6 +28,7 @@ mod shell;
 mod sound;
 mod theme;
 mod ui;
+mod update;
 mod util;
 mod window;
 
@@ -62,6 +64,26 @@ fn main() {
         preview::run(std::path::Path::new(&dir));
         return;
     }
+    if args.iter().any(|a| a == "--check-update") {
+        // Diagnostic: what the updater would install (downloads and verifies, never installs).
+        init_com();
+        println!("versión actual: {}", env!("CARGO_PKG_VERSION"));
+        match update::check() {
+            Some(a) => match update::download(&a) {
+                Ok(p) => println!("nueva versión {} descargada y verificada en {}", a.version, p.display()),
+                Err(e) => println!("nueva versión {}: {e}", a.version),
+            },
+            None => println!("no hay una versión más nueva publicada"),
+        }
+        return;
+    }
+    if args.iter().any(|a| a == "--ip-country") {
+        // Diagnostic: what automatic language sees.
+        let ip = net::ip_country();
+        let lang = i18n::resolve(i18n::device(), ip.as_ref().and_then(|(c, _)| i18n::locale_from_country(c)));
+        println!("dispositivo: {:?} · IP: {:?} → {:?}", i18n::device(), ip, lang);
+        return;
+    }
     if args.iter().any(|a| a == "--bench") {
         init_dpi();
         init_com();
@@ -72,18 +94,34 @@ fn main() {
     init_dpi();
     let background = args.iter().any(|a| a == "--background");
     let action = args.iter().find_map(|a| app::Action::from_arg(a));
+    // Started by the updater: the old version is still closing.
+    let updated = args.iter().find_map(|a| a.strip_prefix("--updated=")).map(|v| v.to_string());
 
     // One instance only; later launches forward their command to it.
     let name = WStr::new(r"Local\ComesADE.ComesShot");
-    let _mutex = unsafe { CreateMutexW(None, true, name.p()) };
-    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-        forward(action.map(|a| a.name()).unwrap_or("show"));
-        return;
-    }
+    let mut tries = if updated.is_some() { 100 } else { 1 };
+    let _mutex = loop {
+        let m = unsafe { CreateMutexW(None, true, name.p()) };
+        if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+            break m;
+        }
+        tries -= 1;
+        if tries == 0 {
+            forward(action.map(|a| a.name()).unwrap_or("show"));
+            return;
+        }
+        if let Ok(h) = m {
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(h);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
 
     init_com();
     config::load();
-    app::run(action, background);
+    update::cleanup();
+    app::run(action, background, updated);
 }
 
 fn init_dpi() {

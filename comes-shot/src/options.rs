@@ -49,6 +49,7 @@ pub mod cmd {
     pub const ALL_DISPLAYS: usize = 28;
     pub const CROSSHAIR: usize = 29;
     pub const EDIT_CONFIG: usize = 30;
+    pub const AUTO_UPDATE: usize = 31;
     /// 50 = automatic, 51.. = i18n::LANGS order.
     pub const LANG_AUTO: usize = 50;
 }
@@ -93,6 +94,7 @@ fn items(cfg: &Config, autostart: bool) -> Vec<Item> {
         Item::Languages,
         Item::Divider,
         Item::Toggle(AUTOSTART, t("Iniciar con Windows"), autostart),
+        Item::Toggle(AUTO_UPDATE, t("Actualizar automáticamente"), cfg.auto_update),
         Item::Link(PICK_FOLDER, t("Cambiar carpeta de capturas…")),
         Item::Link(EDIT_CONFIG, t("Editar atajos y ajustes…")),
         Item::Version,
@@ -104,7 +106,7 @@ fn item_height(it: &Item) -> f32 {
         Item::Section(_) => 30.0,
         Item::Toggle(..) | Item::Link(..) => 36.0,
         Item::Format(_) => 40.0,
-        Item::Languages => 44.0,
+        Item::Languages => 82.0,
         Item::Divider => 13.0,
         Item::Version => 34.0,
     }
@@ -272,6 +274,16 @@ impl Options {
                         let text = if i == 0 { label.to_string() } else { label.to_uppercase() };
                         gfx::draw_text(rt, &text, &f, r.d2d(), if active { &ink } else { &muted });
                     }
+                    // How the language was chosen, worded like ComesADE.
+                    let hint = if cfg.language == "auto" {
+                        let device = i18n::device().map(i18n::lang_name).unwrap_or(t("Desconocido"));
+                        let ip = i18n::ip_country().unwrap_or_else(|| t("Desconocido").to_string());
+                        i18n::tf("Dispositivo: {} · IP: {} → {}", &[&device, &ip, &i18n::lang_name(i18n::current())])
+                    } else {
+                        t("Idioma manual. El dispositivo y la IP se ignoran hasta que elijas Automático.").to_string()
+                    };
+                    let hf = gfx::text_format(FONT, 11.5 * k, gfx::W_REGULAR, 4);
+                    gfx::draw_text(rt, &hint, &hf, rxywh(tx, y + 42.0 * k, w - tx * 2.0, 38.0 * k), &muted);
                 }
                 Item::Link(id, label) => {
                     if self.hot == Some(id) {

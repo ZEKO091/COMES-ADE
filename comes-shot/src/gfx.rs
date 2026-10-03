@@ -27,7 +27,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
     DWRITE_FONT_WEIGHT, DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT,
     DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT, DWRITE_TEXT_ALIGNMENT_CENTER,
-    DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
+    DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_WORD_WRAPPING_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Imaging::{
@@ -340,7 +340,8 @@ pub fn text_format(family: &str, size: f32, weight: i32, align: i32) -> IDWriteT
                         PCWSTR(loc.as_ptr()),
                     )
                     .expect("text format");
-                let _ = fmt.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                // align 4: left/top with word wrap (multi-line hints).
+                let _ = fmt.SetWordWrapping(if align == 4 { DWRITE_WORD_WRAPPING_WRAP } else { DWRITE_WORD_WRAPPING_NO_WRAP });
                 if align == 1 {
                     let _ = fmt.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                     let _ = fmt.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);

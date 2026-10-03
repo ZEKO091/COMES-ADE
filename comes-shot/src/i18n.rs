@@ -50,22 +50,66 @@ fn from_code(code: &str) -> Option<Lang> {
     })
 }
 
-/// Windows display language; anything we don't ship falls back to English.
-pub fn system() -> Lang {
+/// Windows display language, if it is one we ship.
+pub fn device() -> Option<Lang> {
     let primary = unsafe { GetUserDefaultUILanguage() } & 0x3FF;
     match primary {
-        0x0A => Lang::Es,
-        0x16 => Lang::Pt,
-        0x0C => Lang::Fr,
-        0x07 => Lang::De,
-        _ => Lang::En,
+        0x0A => Some(Lang::Es),
+        0x09 => Some(Lang::En),
+        0x16 => Some(Lang::Pt),
+        0x0C => Some(Lang::Fr),
+        0x07 => Some(Lang::De),
+        _ => None,
     }
 }
 
-/// Applies the `language` setting: "auto" or a code from `LANGS`.
+/// Country code of the public IP, once known (see `net::ip_country`).
+static IP_COUNTRY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn set_ip_country(code: Option<String>) {
+    *IP_COUNTRY.lock().unwrap() = code;
+}
+
+pub fn ip_country() -> Option<String> {
+    IP_COUNTRY.lock().unwrap().clone()
+}
+
+/// Same country table as ComesADE.
+pub fn locale_from_country(code: &str) -> Option<Lang> {
+    const ES: &[&str] = &["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY", "GQ", "PR"];
+    const EN: &[&str] = &["US", "GB", "AU", "NZ", "IE", "SG", "ZA", "IN", "PH", "NG", "KE", "GH", "JM", "TT", "CA"];
+    const PT: &[&str] = &["BR", "PT", "AO", "MZ", "CV", "GW", "ST", "TL"];
+    const FR: &[&str] = &["FR", "BE", "LU", "MC", "SN", "CI", "CM", "MG", "HT", "CD", "CG", "GA", "BJ", "NE", "ML", "BF", "TG"];
+    const DE: &[&str] = &["DE", "AT", "LI", "CH"];
+    let c = code.trim().to_ascii_uppercase();
+    let c = c.as_str();
+    [(ES, Lang::Es), (EN, Lang::En), (PT, Lang::Pt), (FR, Lang::Fr), (DE, Lang::De)]
+        .iter()
+        .find(|(list, _)| list.contains(&c))
+        .map(|(_, l)| *l)
+}
+
+/// ComesADE's rule: device and IP agree → that; a generic English device
+/// with a non-English IP → the IP's language; otherwise the device wins.
+pub fn resolve(device: Option<Lang>, ip: Option<Lang>) -> Lang {
+    match (device, ip) {
+        (Some(d), Some(i)) if d == i => d,
+        (Some(Lang::En), Some(i)) => i,
+        (Some(d), _) => d,
+        (None, Some(i)) => i,
+        (None, None) => Lang::En,
+    }
+}
+
+/// Applies the `language` setting: "auto" (device + IP) or a code from `LANGS`.
 pub fn apply(setting: &str) {
-    let lang = from_code(setting).unwrap_or_else(system);
+    let lang = from_code(setting).unwrap_or_else(|| resolve(device(), ip_country().as_deref().and_then(locale_from_country)));
     CURRENT.store(lang as u8, Ordering::Relaxed);
+}
+
+/// Name of a language in the current interface language's catalogue.
+pub fn lang_name(l: Lang) -> &'static str {
+    LANGS[l as usize].1
 }
 
 /// BCP-47 locale for DirectWrite.
@@ -181,6 +225,16 @@ const ENTRIES: &[Entry] = &[
     ("Hace {} min", ["{} min ago", "Há {} min", "Il y a {} min", "Vor {} Min."]),
     ("Hace {} h", ["{} h ago", "Há {} h", "Il y a {} h", "Vor {} Std."]),
     ("Guardando en: {}", ["Saving to: {}", "Salvando em: {}", "Enregistrement dans : {}", "Speichert in: {}"]),
+    // ---- updates
+    ("Actualizar automáticamente", ["Update automatically", "Atualizar automaticamente", "Mettre à jour automatiquement", "Automatisch aktualisieren"]),
+    ("Comes Shot se actualizó a la versión {}", ["Comes Shot was updated to version {}", "Comes Shot foi atualizado para a versão {}", "Comes Shot a été mis à jour vers la version {}", "Comes Shot wurde auf Version {} aktualisiert"]),
+    ("Comes Shot {} se usará la próxima vez que lo abras", ["Comes Shot {} will be used next time you open it", "Comes Shot {} será usado na próxima vez que você abri-lo", "Comes Shot {} sera utilisé à la prochaine ouverture", "Comes Shot {} wird beim nächsten Öffnen verwendet"]),
+    ("No se pudo actualizar: {}", ["Couldn't update: {}", "Não foi possível atualizar: {}", "Échec de la mise à jour : {}", "Aktualisierung fehlgeschlagen: {}"]),
+    // ---- language (same wording as ComesADE)
+    ("Automático", ["Automatic", "Automático", "Automatique", "Automatisch"]),
+    ("Desconocido", ["Unknown", "Desconhecido", "Inconnu", "Unbekannt"]),
+    ("Dispositivo: {} · IP: {} → {}", ["Device: {} · IP: {} → {}", "Dispositivo: {} · IP: {} → {}", "Appareil : {} · IP : {} → {}", "Gerät: {} · IP: {} → {}"]),
+    ("Idioma manual. El dispositivo y la IP se ignoran hasta que elijas Automático.", ["Manual language. Device and IP are ignored until you choose Automatic.", "Idioma manual. O dispositivo e o IP são ignorados até você escolher Automático.", "Langue manuelle. L'appareil et l'IP sont ignorés jusqu'à ce que vous choisissiez Automatique.", "Manuelle Sprache. Gerät und IP werden ignoriert, bis du Automatisch wählst."]),
     // ---- overlay
     ("C copia", ["C copies", "C copia", "C copie", "C kopiert"]),
     ("Selecciona el texto que quieres copiar   ·   Esc cancela", ["Select the text you want to copy   ·   Esc cancels", "Selecione o texto que deseja copiar   ·   Esc cancela", "Sélectionnez le texte à copier   ·   Échap annule", "Text zum Kopieren auswählen   ·   Esc bricht ab"]),
@@ -294,5 +348,24 @@ mod tests {
         assert_eq!(tf("Color {} copiado", &[&"#FFFFFF"]), "Color #FFFFFF copied");
         CURRENT.store(Lang::Es as u8, Ordering::Relaxed);
         assert_eq!(tf("Color {} copiado", &[&"#FFFFFF"]), "Color #FFFFFF copiado");
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    /// Same outcomes as ComesADE's resolveLocale.
+    #[test]
+    fn device_plus_ip() {
+        assert_eq!(resolve(Some(Lang::Es), Some(Lang::Es)), Lang::Es);
+        assert_eq!(resolve(Some(Lang::En), Some(Lang::Es)), Lang::Es);
+        assert_eq!(resolve(Some(Lang::De), Some(Lang::Es)), Lang::De);
+        assert_eq!(resolve(None, Some(Lang::Pt)), Lang::Pt);
+        assert_eq!(resolve(Some(Lang::Fr), None), Lang::Fr);
+        assert_eq!(resolve(None, None), Lang::En);
+        assert_eq!(locale_from_country("do"), Some(Lang::Es));
+        assert_eq!(locale_from_country("BR"), Some(Lang::Pt));
+        assert_eq!(locale_from_country("JP"), None);
     }
 }
