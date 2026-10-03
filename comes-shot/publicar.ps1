@@ -15,8 +15,13 @@ $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select
 $tag = "comes-shot-v$version"
 Write-Host "Comes Shot $version"
 
+# "release not found" on stderr is the expected answer here; in Windows
+# PowerShell 5.1 it would abort the script under 'Stop'.
+$ErrorActionPreference = 'Continue'
 gh release view $tag -R ZEKO091/COMES-ADE *> $null
-if ($LASTEXITCODE -eq 0) {
+$exists = $LASTEXITCODE -eq 0
+$ErrorActionPreference = 'Stop'
+if ($exists) {
     Write-Host "$tag ya está publicada. Sube la versión en Cargo.toml para publicar otra."
     exit 0
 }

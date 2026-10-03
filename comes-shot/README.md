@@ -78,6 +78,10 @@ Publicar una versión nueva:
    la release `comes-shot-v0.3.0` con `ComesShot.exe` y su `ComesShot.exe.sha256`.
    Si la versión no cambió, solo compila y prueba.
 
+   Sin GitHub Actions (por ejemplo, con la facturación de la cuenta bloqueada), publica
+   desde el PC con `powershell -ExecutionPolicy Bypass -File publicar.ps1`, que hace lo
+   mismo: tests, compilación y release.
+
 Las copias instaladas consultan esas releases 15 s después de abrirse y luego cada 6 horas.
 Si hay una versión nueva, la descargan, comprueban su SHA-256, sustituyen el `.exe` y se
 reinician solas. Si estás capturando o tienes el editor abierto, esperan a que termines.
